@@ -28,11 +28,6 @@ module Gitlab
       end
     end
 
-    def total_count
-      @total_count ||= issues_count + merge_requests_count + blobs_count +
-                       notes_count + wiki_blobs_count + commits_count
-    end
-
     def blobs_count
       @blobs_count ||= blobs.count
     end
@@ -74,7 +69,7 @@ module Gitlab
     end
 
     def notes
-      project.notes.user.search(query).order('updated_at DESC')
+      project.notes.user.search(query, as_user: @current_user).order('updated_at DESC')
     end
 
     def commits

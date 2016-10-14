@@ -1,12 +1,4 @@
 module ProjectsHelper
-  def remove_from_project_team_message(project, member)
-    if member.user
-      "You are going to remove #{member.user.name} from #{project.name} project team. Are you sure?"
-    else
-      "You are going to revoke the invitation for #{member.invite_email} to join #{project.name} project team. Are you sure?"
-    end
-  end
-
   def link_to_project(project)
     link_to [project.namespace.becomes(Namespace), project], title: h(project.name) do
       title = content_tag(:span, project.name, class: 'project-name')
@@ -23,11 +15,11 @@ module ProjectsHelper
   def link_to_member_avatar(author, opts = {})
     default_opts = { avatar: true, name: true, size: 16, author_class: 'author', title: ":name" }
     opts = default_opts.merge(opts)
-    image_tag(avatar_icon(author, opts[:size]), width: opts[:size], class: "avatar avatar-inline #{"s#{opts[:size]}" if opts[:size]}", alt:'') if opts[:avatar]
+    image_tag(avatar_icon(author, opts[:size]), width: opts[:size], class: "avatar avatar-inline #{"s#{opts[:size]}" if opts[:size]}", alt: '') if opts[:avatar]
   end
 
   def link_to_member(project, author, opts = {}, &block)
-    default_opts = { avatar: true, name: true, size: 16, author_class: 'author', title: ":name" }
+    default_opts = { avatar: true, name: true, size: 16, author_class: 'author', title: ":name", tooltip: false }
     opts = default_opts.merge(opts)
 
     return "(deleted)" unless author
@@ -35,13 +27,14 @@ module ProjectsHelper
     author_html =  ""
 
     # Build avatar image tag
-    author_html << image_tag(avatar_icon(author, opts[:size]), width: opts[:size], class: "avatar avatar-inline #{"s#{opts[:size]}" if opts[:size]}", alt:'') if opts[:avatar]
+    author_html << image_tag(avatar_icon(author, opts[:size]), width: opts[:size], class: "avatar avatar-inline #{"s#{opts[:size]}" if opts[:size]} #{opts[:avatar_class] if opts[:avatar_class]}", alt: '') if opts[:avatar]
 
     # Build name span tag
     if opts[:by_username]
       author_html << content_tag(:span, sanitize("@#{author.username}"), class: opts[:author_class]) if opts[:name]
     else
-      author_html << content_tag(:span, sanitize(author.name), class: opts[:author_class]) if opts[:name]
+      tooltip_data = { placement: 'top' }
+      author_html << content_tag(:span, sanitize(author.name), class: [opts[:author_class], ('has-tooltip' if opts[:tooltip])], title: (author.to_reference if opts[:tooltip]), data: (tooltip_data if opts[:tooltip])) if opts[:name]
     end
 
     author_html << capture(&block) if block
@@ -49,10 +42,10 @@ module ProjectsHelper
     author_html = author_html.html_safe
 
     if opts[:name]
-      link_to(author_html, user_path(author), class: "author_link #{"#{opts[:mobile_classes]}" if opts[:mobile_classes]}").html_safe
+      link_to(author_html, user_path(author), class: "author_link #{"#{opts[:extra_class]}" if opts[:extra_class]} #{"#{opts[:mobile_classes]}" if opts[:mobile_classes]}").html_safe
     else
       title = opts[:title].sub(":name", sanitize(author.name))
-      link_to(author_html, user_path(author), class: "author_link has-tooltip", data: { 'original-title'.to_sym => title, container: 'body' } ).html_safe
+      link_to(author_html, user_path(author), class: "author_link has-tooltip", title: title, data: { container: 'body' } ).html_safe
     end
   end
 
@@ -65,21 +58,16 @@ module ProjectsHelper
         link_to(simple_sanitize(owner.name), user_path(owner))
       end
 
-    project_link = link_to project_path(project), { class: "project-item-select-holder" } do
-      link_output = simple_sanitize(project.name)
+    project_link = link_to simple_sanitize(project.name), project_path(project), { class: "project-item-select-holder" }
 
-      if current_user
-        link_output += project_select_tag :project_path,
-          class: "project-item-select js-projects-dropdown",
-          data: { include_groups: false, order_by: 'last_activity_at' }
+    if current_user
+      project_link << button_tag(type: 'button', class: "dropdown-toggle-caret js-projects-dropdown-toggle", aria: { label: "Toggle switch project dropdown" }, data: { target: ".js-dropdown-menu-projects", toggle: "dropdown" }) do
+        icon("chevron-down")
       end
-
-      link_output
     end
-    project_link += icon "chevron-down", class: "dropdown-toggle-caret js-projects-dropdown-toggle" if current_user
 
-    full_title = namespace_link + ' / ' + project_link
-    full_title += ' &middot; '.html_safe + link_to(simple_sanitize(name), url) if name
+    full_title = "#{namespace_link} / #{project_link}".html_safe
+    full_title << ' &middot; '.html_safe << link_to(simple_sanitize(name), url) if name
 
     full_title
   end
@@ -122,33 +110,73 @@ module ProjectsHelper
     end
   end
 
-  def user_max_access_in_project(user_id, project)
-    level = project.team.max_member_access(user_id)
+  def license_short_name(project)
+    return 'LICENSE' if project.repository.license_key.nil?
 
-    if level
-      Gitlab::Access.options_with_owner.key(level)
+    license = Licensee::License.new(project.repository.license_key)
+
+    license.nickname || license.name
+  end
+
+  def last_push_event
+    return unless current_user
+
+    project_ids = [@project.id]
+    if fork = current_user.fork_of(@project)
+      project_ids << fork.id
     end
+
+    current_user.recent_push(project_ids)
+  end
+
+  def project_feature_access_select(field)
+    # Don't show option "everyone with access" if project is private
+    options = project_feature_options
+
+    if @project.private?
+      options.delete('Everyone with access')
+      highest_available_option = options.values.max if @project.project_feature.send(field) == ProjectFeature::ENABLED
+    end
+
+    options = options_for_select(options, selected: highest_available_option || @project.project_feature.public_send(field))
+    content_tag(:select, options, name: "project[project_feature_attributes][#{field}]", id: "project_project_feature_attributes_#{field}", class: "pull-right form-control", data: { field: field }).html_safe
   end
 
   private
 
   def get_project_nav_tabs(project, current_user)
-    nav_tabs = [:home, :forks]
+    nav_tabs = [:home]
 
     if !project.empty_repo? && can?(current_user, :download_code, project)
-      nav_tabs << [:files, :commits, :network, :graphs]
+      nav_tabs << [:files, :commits, :network, :graphs, :forks]
     end
 
     if project.repo_exists? && can?(current_user, :read_merge_request, project)
       nav_tabs << :merge_requests
     end
 
+    if can?(current_user, :read_pipeline, project)
+      nav_tabs << :pipelines
+    end
+
     if can?(current_user, :read_build, project)
       nav_tabs << :builds
     end
 
+    if Gitlab.config.registry.enabled && can?(current_user, :read_container_image, project)
+      nav_tabs << :container_registry
+    end
+
+    if can?(current_user, :read_environment, project)
+      nav_tabs << :environments
+    end
+
     if can?(current_user, :admin_project, project)
       nav_tabs << :settings
+    end
+
+    if can?(current_user, :read_project_member, project)
+      nav_tabs << :team
     end
 
     if can?(current_user, :read_issue, project)
@@ -174,6 +202,18 @@ module ProjectsHelper
     nav_tabs.flatten
   end
 
+  def project_lfs_status(project)
+    if project.lfs_enabled?
+      content_tag(:span, class: 'lfs-enabled') do
+        'Enabled'
+      end
+    else
+      content_tag(:span, class: 'lfs-disabled') do
+        'Disabled'
+      end
+    end
+  end
+
   def git_user_name
     if current_user
       current_user.name
@@ -191,16 +231,13 @@ module ProjectsHelper
   end
 
   def repository_size(project = @project)
-    "#{project.repository_size} MB"
-  rescue
-    # In order to prevent 500 error
-    # when application cannot allocate memory
-    # to calculate repo size - just show 'Unknown'
-    'unknown'
+    size_in_bytes = project.repository_size * 1.megabyte
+    number_to_human_size(size_in_bytes, delimiter: ',', precision: 2)
   end
 
   def default_url_to_repo(project = @project)
-    if default_clone_protocol == "ssh"
+    case default_clone_protocol
+    when 'ssh'
       project.ssh_url_to_repo
     else
       project.http_url_to_repo
@@ -208,10 +245,14 @@ module ProjectsHelper
   end
 
   def default_clone_protocol
-    if !current_user || current_user.require_ssh_key?
-      gitlab_config.protocol
+    if allowed_protocols_present?
+      enabled_protocol
     else
-      "ssh"
+      if !current_user || current_user.require_ssh_key?
+        gitlab_config.protocol
+      else
+        'ssh'
+      end
     end
   end
 
@@ -223,40 +264,68 @@ module ProjectsHelper
     end
   end
 
-  def add_contribution_guide_path(project)
-    if project && !project.repository.contribution_guide
-      namespace_project_new_blob_path(
-        project.namespace,
-        project,
-        project.default_branch,
-        file_name:      "CONTRIBUTING.md",
-        commit_message: "Add contribution guide"
-      )
-    end
+  def add_special_file_path(project, file_name:, commit_message: nil)
+    namespace_project_new_blob_path(
+      project.namespace,
+      project,
+      project.default_branch || 'master',
+      file_name:      file_name,
+      commit_message: commit_message || "Add #{file_name.downcase}"
+    )
   end
 
-  def add_changelog_path(project)
-    if project && !project.repository.changelog
-      namespace_project_new_blob_path(
-        project.namespace,
-        project,
-        project.default_branch,
-        file_name:      "CHANGELOG",
-        commit_message: "Add changelog"
-      )
-    end
+  def add_koding_stack_path(project)
+    namespace_project_new_blob_path(
+      project.namespace,
+      project,
+      project.default_branch || 'master',
+      file_name:      '.koding.yml',
+      commit_message: "Add Koding stack script",
+      content: <<-CONTENT.strip_heredoc
+        provider:
+          aws:
+            access_key: '${var.aws_access_key}'
+            secret_key: '${var.aws_secret_key}'
+        resource:
+          aws_instance:
+            #{project.path}-vm:
+              instance_type: t2.nano
+              user_data: |-
+
+                # Created by GitLab UI for :>
+
+                echo _KD_NOTIFY_@Installing Base packages...@
+
+                apt-get update -y
+                apt-get install git -y
+
+                echo _KD_NOTIFY_@Cloning #{project.name}...@
+
+                export KODING_USER=${var.koding_user_username}
+                export REPO_URL=#{root_url}${var.koding_queryString_repo}.git
+                export BRANCH=${var.koding_queryString_branch}
+
+                sudo -i -u $KODING_USER git clone $REPO_URL -b $BRANCH
+
+                echo _KD_NOTIFY_@#{project.name} cloned.@
+      CONTENT
+    )
   end
 
-  def add_license_path(project)
-    if project && !project.repository.license
-      namespace_project_new_blob_path(
-        project.namespace,
-        project,
-        project.default_branch,
-        file_name:      "LICENSE",
-        commit_message: "Add license"
-      )
+  def koding_project_url(project = nil, branch = nil, sha = nil)
+    if project
+      import_path = "/Home/Stacks/import"
+
+      repo = project.path_with_namespace
+      branch ||= project.default_branch
+      sha ||= project.commit.short_id
+
+      path = "#{import_path}?repo=#{repo}&branch=#{branch}&sha=#{sha}"
+
+      return URI.join(current_application_settings.koding_url, path).to_s
     end
+
+    current_application_settings.koding_url
   end
 
   def contribution_guide_path(project)
@@ -279,11 +348,15 @@ module ProjectsHelper
   end
 
   def license_path(project)
-    filename_path(project, :license)
+    filename_path(project, :license_blob)
   end
 
   def version_path(project)
     filename_path(project, :version)
+  end
+
+  def ci_configuration_path(project)
+    filename_path(project, :gitlab_ci_yml)
   end
 
   def project_wiki_path_with_version(proj, page, version, is_newest)
@@ -302,10 +375,6 @@ module ProjectsHelper
     end
   end
 
-  def leave_project_message(project)
-    "Are you sure you want to leave \"#{project.name}\" project?"
-  end
-
   def new_readme_path
     ref = @repository.root_ref if @repository
     ref ||= 'master'
@@ -313,10 +382,11 @@ module ProjectsHelper
     namespace_project_new_blob_path(@project.namespace, @project, tree_join(ref), file_name: 'README.md')
   end
 
-  def last_push_event
-    if current_user
-      current_user.recent_push(@project.id)
-    end
+  def new_license_path
+    ref = @repository.root_ref if @repository
+    ref ||= 'master'
+
+    namespace_project_new_blob_path(@project.namespace, @project, tree_join(ref), file_name: 'LICENSE')
   end
 
   def readme_cache_key
@@ -342,8 +412,6 @@ module ProjectsHelper
     @ref || @repository.try(:root_ref)
   end
 
-  private
-
   def filename_path(project, filename)
     if project && blob = project.repository.send(filename)
       namespace_project_blob_path(
@@ -352,5 +420,19 @@ module ProjectsHelper
         tree_join(project.default_branch, blob.name)
       )
     end
+  end
+
+  def sanitize_repo_path(project, message)
+    return '' unless message.present?
+
+    message.strip.gsub(project.repository_storage_path.chomp('/'), "[REPOS PATH]")
+  end
+
+  def project_feature_options
+    {
+      'Disabled' => ProjectFeature::DISABLED,
+      'Only team members' => ProjectFeature::PRIVATE,
+      'Everyone with access' => ProjectFeature::ENABLED
+    }
   end
 end

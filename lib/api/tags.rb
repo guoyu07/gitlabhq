@@ -12,8 +12,22 @@ module API
       # Example Request:
       #   GET /projects/:id/repository/tags
       get ":id/repository/tags" do
-        present user_project.repo.tags.sort_by(&:name).reverse,
+        present user_project.repository.tags.sort_by(&:name).reverse,
                 with: Entities::RepoTag, project: user_project
+      end
+
+      # Get a single repository tag
+      #
+      # Parameters:
+      #   id (required)       - The ID of a project
+      #   tag_name (required) - The name of the tag
+      # Example Request:
+      #   GET /projects/:id/repository/tags/:tag_name
+      get ":id/repository/tags/:tag_name", requirements: { tag_name: /.+/ } do
+        tag = user_project.repository.find_tag(params[:tag_name])
+        not_found!('Tag') unless tag
+
+        present tag, with: Entities::RepoTag, project: user_project
       end
 
       # Create tag
@@ -47,7 +61,7 @@ module API
       #   tag_name (required) - The name of the tag
       # Example Request:
       #   DELETE /projects/:id/repository/tags/:tag
-      delete ":id/repository/tags/:tag_name", requirements: { tag_name: /.*/ } do
+      delete ":id/repository/tags/:tag_name", requirements: { tag_name: /.+/ } do
         authorize_push_project
         result = DeleteTagService.new(user_project, current_user).
           execute(params[:tag_name])
@@ -69,7 +83,7 @@ module API
       #   description (required) - Release notes with markdown support
       # Example Request:
       #   POST /projects/:id/repository/tags/:tag_name/release
-      post ':id/repository/tags/:tag_name/release', requirements: { tag_name: /.*/ } do
+      post ':id/repository/tags/:tag_name/release', requirements: { tag_name: /.+/ } do
         authorize_push_project
         required_attributes! [:description]
         result = CreateReleaseService.new(user_project, current_user).
@@ -90,7 +104,7 @@ module API
       #   description (required) - Release notes with markdown support
       # Example Request:
       #   PUT /projects/:id/repository/tags/:tag_name/release
-      put ':id/repository/tags/:tag_name/release', requirements: { tag_name: /.*/ } do
+      put ':id/repository/tags/:tag_name/release', requirements: { tag_name: /.+/ } do
         authorize_push_project
         required_attributes! [:description]
         result = UpdateReleaseService.new(user_project, current_user).

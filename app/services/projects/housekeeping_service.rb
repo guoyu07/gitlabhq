@@ -7,8 +7,6 @@
 #
 module Projects
   class HousekeepingService < BaseService
-    include Gitlab::ShellAdapter
-
     LEASE_TIMEOUT = 3600
 
     class LeaseTaken < StandardError
@@ -22,11 +20,9 @@ module Projects
     end
 
     def execute
-      raise LeaseTaken if !try_obtain_lease
+      raise LeaseTaken unless try_obtain_lease
 
-      GitlabShellOneShotWorker.perform_async(:gc, @project.path_with_namespace)
-    ensure
-      @project.update_column(:pushes_since_gc, 0)
+      execute_gitlab_shell_gc
     end
 
     def needed?
@@ -34,14 +30,26 @@ module Projects
     end
 
     def increment!
-      @project.increment!(:pushes_since_gc)
+      Gitlab::Metrics.measure(:increment_pushes_since_gc) do
+        @project.increment_pushes_since_gc
+      end
     end
 
     private
 
+    def execute_gitlab_shell_gc
+      GitGarbageCollectWorker.perform_async(@project.id)
+    ensure
+      Gitlab::Metrics.measure(:reset_pushes_since_gc) do
+        @project.reset_pushes_since_gc
+      end
+    end
+
     def try_obtain_lease
-      lease = ::Gitlab::ExclusiveLease.new("project_housekeeping:#{@project.id}", timeout: LEASE_TIMEOUT)
-      lease.try_obtain
+      Gitlab::Metrics.measure(:obtain_housekeeping_lease) do
+        lease = ::Gitlab::ExclusiveLease.new("project_housekeeping:#{@project.id}", timeout: LEASE_TIMEOUT)
+        lease.try_obtain
+      end
     end
   end
 end

@@ -13,7 +13,7 @@ describe Projects::AutocompleteService, services: true do
       let!(:security_issue_1) { create(:issue, :confidential, project: project, title: 'Security issue 1', author: author) }
       let!(:security_issue_2) { create(:issue, :confidential, title: 'Security issue 2', project: project, assignee: assignee) }
 
-      it 'should not list project confidential issues for guests' do
+      it 'does not list project confidential issues for guests' do
         autocomplete = described_class.new(project, nil)
         issues = autocomplete.issues.map(&:iid)
 
@@ -23,7 +23,7 @@ describe Projects::AutocompleteService, services: true do
         expect(issues.count).to eq 1
       end
 
-      it 'should not list project confidential issues for non project members' do
+      it 'does not list project confidential issues for non project members' do
         autocomplete = described_class.new(project, non_member)
         issues = autocomplete.issues.map(&:iid)
 
@@ -33,7 +33,19 @@ describe Projects::AutocompleteService, services: true do
         expect(issues.count).to eq 1
       end
 
-      it 'should list project confidential issues for author' do
+      it 'does not list project confidential issues for project members with guest role' do
+        project.team << [member, :guest]
+
+        autocomplete = described_class.new(project, non_member)
+        issues = autocomplete.issues.map(&:iid)
+
+        expect(issues).to include issue.iid
+        expect(issues).not_to include security_issue_1.iid
+        expect(issues).not_to include security_issue_2.iid
+        expect(issues.count).to eq 1
+      end
+
+      it 'lists project confidential issues for author' do
         autocomplete = described_class.new(project, author)
         issues = autocomplete.issues.map(&:iid)
 
@@ -43,7 +55,7 @@ describe Projects::AutocompleteService, services: true do
         expect(issues.count).to eq 2
       end
 
-      it 'should list project confidential issues for assignee' do
+      it 'lists project confidential issues for assignee' do
         autocomplete = described_class.new(project, assignee)
         issues = autocomplete.issues.map(&:iid)
 
@@ -53,7 +65,7 @@ describe Projects::AutocompleteService, services: true do
         expect(issues.count).to eq 2
       end
 
-      it 'should list project confidential issues for project members' do
+      it 'lists project confidential issues for project members' do
         project.team << [member, :developer]
 
         autocomplete = described_class.new(project, member)
@@ -65,7 +77,7 @@ describe Projects::AutocompleteService, services: true do
         expect(issues.count).to eq 3
       end
 
-      it 'should list all project issues for admin' do
+      it 'lists all project issues for admin' do
         autocomplete = described_class.new(project, admin)
         issues = autocomplete.issues.map(&:iid)
 

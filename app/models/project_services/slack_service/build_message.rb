@@ -9,7 +9,7 @@ class SlackService
     attr_reader :user_name
     attr_reader :duration
 
-    def initialize(params, commit = true)
+    def initialize(params)
       @sha = params[:sha]
       @ref_type = params[:tag] ? 'tag' : 'branch'
       @ref = params[:ref]
@@ -35,7 +35,7 @@ class SlackService
     private
 
     def message
-      "#{project_link}: Commit #{commit_link} of #{branch_link} #{ref_type} by #{user_name} #{humanized_status} in #{duration} second(s)"
+      "#{project_link}: Commit #{commit_link} of #{branch_link} #{ref_type} by #{user_name} #{humanized_status} in #{duration} #{'second'.pluralize(duration)}"
     end
 
     def format(string)

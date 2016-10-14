@@ -8,6 +8,8 @@ treatment, etc.). And so that maintainers know what to expect from contributors
 (use the latest version, ensure that the issue is addressed, friendly treatment,
 etc.).
 
+- [GitLab Inc engineers should refer to the engineering workflow document](https://about.gitlab.com/handbook/engineering/workflow/)
+
 ## Common actions
 
 ### Issue team
@@ -48,7 +50,7 @@ etc.).
 
 The most important thing is making sure valid issues receive feedback from the
 development team. Therefore the priority is mentioning developers that can help
-on those issue. Please select someone with relevant experience from
+on those issues. Please select someone with relevant experience from
 [GitLab core team][core-team]. If there is nobody mentioned with that expertise
 look in the commit history for the affected files to find someone. Avoid
 mentioning the lead developer, this is the person that is least likely to give a
@@ -59,7 +61,7 @@ core team members will mention this person.
 
 Workflow labels are purposely not very detailed since that would be hard to keep
 updated as you would need to re-evaluate them after every comment. We optionally
-use functional labels on demand when want to group related issues to get an
+use functional labels on demand when we want to group related issues to get an
 overview (for example all issues related to RVM, to tackle them in one go) and
 to add details to the issue.
 
@@ -73,6 +75,7 @@ in support or comment for further detail. Do not use `feature request`.
 - ~bug is an issue reporting undesirable or incorrect behavior.
 - ~customer is an issue reported by enterprise subscribers. This label should
 be accompanied by *bug* or *feature proposal* labels.
+
 Example workflow: when a UX designer provided a design but it needs frontend work they remove the UX label and add the frontend label.
 
 ## Functional labels
@@ -104,6 +107,25 @@ English speaker, they might not understand things or they might be very
 sensitive as to how you word things. Use Emoji to express your feelings (heart,
 star, smile, etc.). Some good tips about giving feedback to merge requests is in
 the [Thoughtbot code review guide].
+
+## Feature Freeze
+
+5 working days before the 22nd the stable branches for the upcoming release will
+be frozen for major changes. Merge requests may still be merged into master
+during this period. By freezing the stable branches prior to a release there's
+no need to worry about last minute merge requests potentially breaking a lot of
+things.
+
+What is considered to be a major change is determined on a case by case basis as
+this definition depends very much on the context of changes. For example, a 5
+line change might have a big impact on the entire application. Ultimately the
+decision will be made by those reviewing a merge request and the release
+manager.
+
+During the feature freeze all merge requests that are meant to go into the next
+release should have the correct milestone assigned _and_ have the label
+~"Pick into Stable" set. Merge requests without a milestone and this label will
+not be merged into any stable branches.
 
 ## Copy & paste responses
 

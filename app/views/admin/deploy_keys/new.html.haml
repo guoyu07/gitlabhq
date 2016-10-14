@@ -4,11 +4,7 @@
 
 %div
   = form_for [:admin, @deploy_key], html: { class: 'deploy-key-form form-horizontal' } do |f|
-    -if @deploy_key.errors.any?
-      .alert.alert-danger
-        %ul
-          - @deploy_key.errors.full_messages.each do |msg|
-            %li= msg
+    = form_errors(@deploy_key)
 
     .form-group
       = f.label :title, class: "control-label"
@@ -18,7 +14,7 @@
       .col-sm-10
         %p.light
           Paste a machine public key here. Read more about how to generate it
-          = link_to "here", help_page_path("ssh", "README")
+          = link_to "here", help_page_path("ssh/README")
         = f.text_area :key, class: "form-control thin_area", rows: 5
 
     .form-actions

@@ -7,6 +7,8 @@ module Banzai
           Filter::SanitizationFilter,
 
           Filter::UploadLinkFilter,
+          Filter::VideoLinkFilter,
+          Filter::ImageLinkFilter,
           Filter::EmojiFilter,
           Filter::TableOfContentsFilter,
           Filter::AutolinkFilter,
@@ -22,7 +24,8 @@ module Banzai
           Filter::LabelReferenceFilter,
           Filter::MilestoneReferenceFilter,
 
-          Filter::TaskListFilter
+          Filter::TaskListFilter,
+          Filter::InlineDiffFilter
         ]
       end
 

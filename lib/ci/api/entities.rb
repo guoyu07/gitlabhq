@@ -15,12 +15,21 @@ module Ci
         expose :filename, :size
       end
 
+      class BuildOptions < Grape::Entity
+        expose :image
+        expose :services
+        expose :artifacts
+        expose :cache
+        expose :dependencies
+        expose :after_script
+      end
+
       class Build < Grape::Entity
         expose :id, :ref, :tag, :sha, :status
         expose :name, :token, :stage
         expose :project_id
         expose :project_name
-        expose :artifacts_file, using: ArtifactFile, if: lambda { |build, opts| build.artifacts? }
+        expose :artifacts_file, using: ArtifactFile, if: ->(build, _) { build.artifacts? }
       end
 
       class BuildDetails < Build
@@ -29,6 +38,7 @@ module Ci
         expose :before_sha
         expose :allow_git_fetch
         expose :token
+        expose :artifacts_expire_at, if: ->(build, _) { build.artifacts? }
 
         expose :options do |model|
           model.options
@@ -56,7 +66,7 @@ module Ci
 
       class TriggerRequest < Grape::Entity
         expose :id, :variables
-        expose :commit, using: Commit
+        expose :pipeline, using: Commit, as: :commit
       end
     end
   end

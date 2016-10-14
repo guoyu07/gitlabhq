@@ -2,18 +2,45 @@ module API
   module Helpers
     PRIVATE_TOKEN_HEADER = "HTTP_PRIVATE_TOKEN"
     PRIVATE_TOKEN_PARAM = :private_token
-    SUDO_HEADER ="HTTP_SUDO"
+    SUDO_HEADER = "HTTP_SUDO"
     SUDO_PARAM = :sudo
 
-    def parse_boolean(value)
-      [ true, 1, '1', 't', 'T', 'true', 'TRUE', 'on', 'ON' ].include?(value)
+    def to_boolean(value)
+      return true if value =~ /^(true|t|yes|y|1|on)$/i
+      return false if value =~ /^(false|f|no|n|0|off)$/i
+
+      nil
+    end
+
+    def private_token
+      params[PRIVATE_TOKEN_PARAM] || env[PRIVATE_TOKEN_HEADER]
+    end
+
+    def warden
+      env['warden']
+    end
+
+    # Check the Rails session for valid authentication details
+    #
+    # Until CSRF protection is added to the API, disallow this method for
+    # state-changing endpoints
+    def find_user_from_warden
+      warden.try(:authenticate) if %w[GET HEAD].include?(env['REQUEST_METHOD'])
+    end
+
+    def find_user_by_private_token
+      token = private_token
+      return nil unless token.present?
+
+      User.find_by_authentication_token(token) || User.find_by_personal_access_token(token)
     end
 
     def current_user
-      private_token = (params[PRIVATE_TOKEN_PARAM] || env[PRIVATE_TOKEN_HEADER]).to_s
-      @current_user ||= (User.find_by(authentication_token: private_token) || doorkeeper_guard)
+      @current_user ||= find_user_by_private_token
+      @current_user ||= doorkeeper_guard
+      @current_user ||= find_user_from_warden
 
-      unless @current_user && Gitlab::UserAccess.allowed?(@current_user)
+      unless @current_user && Gitlab::UserAccess.new(@current_user).allowed?
         return nil
       end
 
@@ -21,7 +48,7 @@ module API
 
       # If the sudo is the current user do nothing
       if identifier && !(@current_user.id == identifier || @current_user.username == identifier)
-        render_api_error!('403 Forbidden: Must be admin to use sudo', 403) unless @current_user.is_admin?
+        forbidden!('Must be admin to use sudo') unless @current_user.is_admin?
         @current_user = User.by_username_or_id(identifier)
         not_found!("No user id or username for: #{identifier}") if @current_user.nil?
       end
@@ -29,11 +56,11 @@ module API
       @current_user
     end
 
-    def sudo_identifier()
+    def sudo_identifier
       identifier ||= params[SUDO_PARAM] || env[SUDO_HEADER]
 
       # Regex for integers
-      if !!(identifier =~ /^[0-9]+$/)
+      if !!(identifier =~ /\A[0-9]+\z/)
         identifier.to_i
       else
         identifier
@@ -42,16 +69,15 @@ module API
 
     def user_project
       @project ||= find_project(params[:id])
-      @project || not_found!("Project")
     end
 
     def find_project(id)
       project = Project.find_with_namespace(id) || Project.find_by(id: id)
 
-      if project && can?(current_user, :read_project, project)
+      if can?(current_user, :read_project, project)
         project
       else
-        nil
+        not_found!('Project')
       end
     end
 
@@ -82,18 +108,24 @@ module API
     end
 
     def find_group(id)
-      begin
-        group = Group.find(id)
-      rescue ActiveRecord::RecordNotFound
-        group = Group.find_by!(path: id)
-      end
+      group = Group.find_by(path: id) || Group.find_by(id: id)
 
       if can?(current_user, :read_group, group)
         group
       else
-        forbidden!("#{current_user.username} lacks sufficient "\
-        "access to #{group.name}")
+        not_found!('Group')
       end
+    end
+
+    def find_project_label(id)
+      label = user_project.labels.find_by_id(id) || user_project.labels.find_by_title(id)
+      label || not_found!('Label')
+    end
+
+    def find_project_issue(id)
+      issue = user_project.issues.find(id)
+      not_found! unless can?(current_user, :read_issue, issue)
+      issue
     end
 
     def paginate(relation)
@@ -117,8 +149,8 @@ module API
       forbidden! unless current_user.is_admin?
     end
 
-    def authorize!(action, subject)
-      forbidden! unless abilities.allowed?(current_user, action, subject)
+    def authorize!(action, subject = nil)
+      forbidden! unless can?(current_user, action, subject)
     end
 
     def authorize_push_project
@@ -136,7 +168,7 @@ module API
     end
 
     def can?(object, action, subject)
-      abilities.allowed?(object, action, subject)
+      Ability.allowed?(object, action, subject)
     end
 
     # Checks the occurrences of required attributes, each attribute must be present in the params hash
@@ -180,8 +212,20 @@ module API
       errors
     end
 
-    def validate_access_level?(level)
-      Gitlab::Access.options_with_owner.values.include? level.to_i
+    # Checks the occurrences of datetime attributes, each attribute if present in the params hash must be in ISO 8601
+    # format (YYYY-MM-DDTHH:MM:SSZ) or a Bad Request error is invoked.
+    #
+    # Parameters:
+    #   keys (required) - An array consisting of elements that must be parseable as dates from the params hash
+    def datetime_attributes!(*keys)
+      keys.each do |key|
+        begin
+          params[key] = Time.xmlschema(params[key]) if params[key].present?
+        rescue ArgumentError
+          message = "\"" + key.to_s + "\" must be a timestamp in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ"
+          render_api_error!(message, 400)
+        end
+      end
     end
 
     def issuable_order_by
@@ -241,6 +285,14 @@ module API
       render_api_error!('413 Request Entity Too Large', 413)
     end
 
+    def not_modified!
+      render_api_error!('304 Not Modified', 304)
+    end
+
+    def no_content!
+      render_api_error!('204 No Content', 204)
+    end
+
     def render_validation_error!(model)
       if model.errors.any?
         render_api_error!(model.errors.messages || '400 Bad Request', 400)
@@ -251,12 +303,30 @@ module API
       error!({ 'message' => message }, status)
     end
 
+    def handle_api_exception(exception)
+      if sentry_enabled? && report_exception?(exception)
+        define_params_for_grape_middleware
+        sentry_context
+        Raven.capture_exception(exception)
+      end
+
+      # lifted from https://github.com/rails/rails/blob/master/actionpack/lib/action_dispatch/middleware/debug_exceptions.rb#L60
+      trace = exception.backtrace
+
+      message = "\n#{exception.class} (#{exception.message}):\n"
+      message << exception.annoted_source_code.to_s if exception.respond_to?(:annoted_source_code)
+      message << "  " << trace.join("\n  ")
+
+      API.logger.add Logger::FATAL, message
+      rack_response({ 'message' => '500 Internal Server Error' }.to_json, 500)
+    end
+
     # Projects helpers
 
     def filter_projects(projects)
       # If the archived parameter is passed, limit results accordingly
       if params[:archived].present?
-        projects = projects.where(archived: parse_boolean(params[:archived]))
+        projects = projects.where(archived: to_boolean(params[:archived]))
       end
 
       if params[:search].present?
@@ -362,21 +432,40 @@ module API
       links.join(', ')
     end
 
-    def abilities
-      @abilities ||= begin
-                       abilities = Six.new
-                       abilities << Ability
-                       abilities
-                     end
-    end
-
     def secret_token
-      File.read(Gitlab.config.gitlab_shell.secret_file).chomp
+      Gitlab::Shell.secret_token
     end
 
-    def handle_member_errors(errors)
-      error!(errors[:access_level], 422) if errors[:access_level].any?
-      not_found!(errors)
+    def send_git_blob(repository, blob)
+      env['api.format'] = :txt
+      content_type 'text/plain'
+      header(*Gitlab::Workhorse.send_git_blob(repository, blob))
+    end
+
+    def send_git_archive(repository, ref:, format:)
+      header(*Gitlab::Workhorse.send_git_archive(repository, ref: ref, format: format))
+    end
+
+    def issue_entity(project)
+      if project.has_external_issue_tracker?
+        Entities::ExternalIssue
+      else
+        Entities::Issue
+      end
+    end
+
+    # The Grape Error Middleware only has access to env but no params. We workaround this by
+    # defining a method that returns the right value.
+    def define_params_for_grape_middleware
+      self.define_singleton_method(:params) { Rack::Request.new(env).params.symbolize_keys }
+    end
+
+    # We could get a Grape or a standard Ruby exception. We should only report anything that
+    # is clearly an error.
+    def report_exception?(exception)
+      return true unless exception.respond_to?(:status)
+
+      exception.status == 500
     end
   end
 end

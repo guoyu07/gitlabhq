@@ -52,7 +52,7 @@ module PageLayoutHelper
     raise ArgumentError, 'cannot provide more than two attributes' if map.length > 2
 
     @page_card_attributes ||= {}
-    @page_card_attributes = map.reject { |_,v| v.blank? } if map.present?
+    @page_card_attributes = map.reject { |_, v| v.blank? } if map.present?
     @page_card_attributes
   end
 
@@ -84,12 +84,16 @@ module PageLayoutHelper
     end
   end
 
-  def fluid_layout(enabled = false)
-    if @fluid_layout.nil?
-      @fluid_layout = (current_user && current_user.layout == "fluid") || enabled
+  def nav(name = nil)
+    if name
+      @nav = name
     else
-      @fluid_layout
+      @nav
     end
+  end
+
+  def fluid_layout
+    current_user && current_user.layout == "fluid"
   end
 
   def blank_container(enabled = false)

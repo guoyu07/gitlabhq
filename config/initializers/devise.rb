@@ -100,6 +100,9 @@ Devise.setup do |config|
   # secure: true in order to force SSL only cookies.
   # config.cookie_options = {}
 
+  # Send a notification email when the user's password is changed
+  config.send_password_change_notification = true
+
   # ==> Configuration for :validatable
   # Range for password length. Default is 6..128.
   config.password_length = 8..128
@@ -212,7 +215,7 @@ Devise.setup do |config|
   if Gitlab::LDAP::Config.enabled?
     Gitlab.config.ldap.servers.values.each do |server|
       if server['allow_username_or_email_login']
-        email_stripping_proc = ->(name) {name.gsub(/@.*\z/,'')}
+        email_stripping_proc = ->(name) {name.gsub(/@.*\z/, '')}
       else
         email_stripping_proc = ->(name) {name}
       end
@@ -243,7 +246,7 @@ Devise.setup do |config|
     when Hash
       # Add procs for handling SLO
       if provider['name'] == 'cas3'
-        provider['args'][:on_single_sign_out]  = lambda do |request|
+        provider['args'][:on_single_sign_out] = lambda do |request|
           ticket = request.params[:session_index]
           raise "Service Ticket not found." unless Gitlab::OAuth::Session.valid?(:cas3, ticket)
           Gitlab::OAuth::Session.destroy(:cas3, ticket)

@@ -31,28 +31,31 @@ describe Banzai::Filter::UserReferenceFilter, lib: true do
     end
 
     it 'supports a special @all mention' do
-      doc = reference_filter("Hey #{reference}")
+      project.team << [user, :developer]
+      doc = reference_filter("Hey #{reference}", author: user)
+
       expect(doc.css('a').length).to eq 1
       expect(doc.css('a').first.attr('href'))
         .to eq urls.namespace_project_url(project.namespace, project)
     end
 
-    context "when the author is a member of the project" do
+    it 'includes a data-author attribute when there is an author' do
+      project.team << [user, :developer]
+      doc = reference_filter(reference, author: user)
 
-      it 'adds to the results hash' do
-        result = reference_pipeline_result("Hey #{reference}", author: project.creator)
-        expect(result[:references][:user]).to eq [project.creator]
-      end
+      expect(doc.css('a').first.attr('data-author')).to eq(user.id.to_s)
     end
 
-    context "when the author is not a member of the project" do
+    it 'does not include a data-author attribute when there is no author' do
+      doc = reference_filter(reference)
 
-      let(:other_user) { create(:user) }
+      expect(doc.css('a').first.has_attribute?('data-author')).to eq(false)
+    end
 
-      it "doesn't add to the results hash" do
-        result = reference_pipeline_result("Hey #{reference}", author: other_user)
-        expect(result[:references][:user]).to eq []
-      end
+    it 'ignores reference to all when the user is not a project member' do
+      doc = reference_filter("Hey #{reference}", author: user)
+
+      expect(doc.css('a').length).to eq 0
     end
   end
 
@@ -83,11 +86,6 @@ describe Banzai::Filter::UserReferenceFilter, lib: true do
       expect(link).to have_attribute('data-user')
       expect(link.attr('data-user')).to eq user.namespace.owner_id.to_s
     end
-
-    it 'adds to the results hash' do
-      result = reference_pipeline_result("Hey #{reference}")
-      expect(result[:references][:user]).to eq [user]
-    end
   end
 
   context 'mentioning a group' do
@@ -106,11 +104,6 @@ describe Banzai::Filter::UserReferenceFilter, lib: true do
       expect(link).to have_attribute('data-group')
       expect(link.attr('data-group')).to eq group.id.to_s
     end
-
-    it 'adds to the results hash' do
-      result = reference_pipeline_result("Hey #{reference}")
-      expect(result[:references][:user]).to eq group.users
-    end
   end
 
   it 'links with adjacent text' do
@@ -120,7 +113,7 @@ describe Banzai::Filter::UserReferenceFilter, lib: true do
 
   it 'includes default classes' do
     doc = reference_filter("Hey #{reference}")
-    expect(doc.css('a').first.attr('class')).to eq 'gfm gfm-project_member'
+    expect(doc.css('a').first.attr('class')).to eq 'gfm gfm-project_member has-tooltip'
   end
 
   it 'supports an :only_path context' do
@@ -151,10 +144,24 @@ describe Banzai::Filter::UserReferenceFilter, lib: true do
       expect(link).to have_attribute('data-user')
       expect(link.attr('data-user')).to eq user.namespace.owner_id.to_s
     end
+  end
 
-    it 'adds to the results hash' do
-      result = reference_pipeline_result("Hey #{reference}")
-      expect(result[:references][:user]).to eq [user]
+  describe '#namespaces' do
+    it 'returns a Hash containing all Namespaces' do
+      document = Nokogiri::HTML.fragment("<p>#{user.to_reference}</p>")
+      filter = described_class.new(document, project: project)
+      ns = user.namespace
+
+      expect(filter.namespaces).to eq({ ns.path => ns })
+    end
+  end
+
+  describe '#usernames' do
+    it 'returns the usernames mentioned in a document' do
+      document = Nokogiri::HTML.fragment("<p>#{user.to_reference}</p>")
+      filter = described_class.new(document, project: project)
+
+      expect(filter.usernames).to eq([user.username])
     end
   end
 end

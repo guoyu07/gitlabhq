@@ -34,21 +34,36 @@ module MergeRequests
         committer: committer
       }
 
-      commit_id = repository.merge(current_user, merge_request.source_sha, merge_request.target_branch, options)
-      merge_request.update(merge_commit_sha: commit_id)
+      commit_id = repository.merge(current_user, merge_request, options)
+
+      if commit_id
+        merge_request.update(merge_commit_sha: commit_id)
+      else
+        merge_request.update(merge_error: 'Conflicts detected during merge')
+        false
+      end
+    rescue GitHooksService::PreReceiveError => e
+      merge_request.update(merge_error: e.message)
+      false
     rescue StandardError => e
       merge_request.update(merge_error: "Something went wrong during merge")
       Rails.logger.error(e.message)
-      return false
+      false
+    ensure
+      merge_request.update(in_progress_merge_commit_sha: nil)
     end
 
     def after_merge
       MergeRequests::PostMergeService.new(project, current_user).execute(merge_request)
 
-      if params[:should_remove_source_branch].present?
-        DeleteBranchService.new(@merge_request.source_project, current_user).
+      if params[:should_remove_source_branch].present? || @merge_request.force_remove_source_branch?
+        DeleteBranchService.new(@merge_request.source_project, branch_deletion_user).
           execute(merge_request.source_branch)
       end
+    end
+
+    def branch_deletion_user
+      @merge_request.force_remove_source_branch? ? @merge_request.author : current_user
     end
   end
 end

@@ -11,6 +11,7 @@
 .prepend-top-10 { margin-top: 10px }
 .prepend-top-default { margin-top: $gl-padding !important; }
 .prepend-top-20 { margin-top: 20px }
+.prepend-left-5 { margin-left: 5px }
 .prepend-left-10 { margin-left: 10px }
 .prepend-left-default { margin-left: $gl-padding; }
 .prepend-left-20 { margin-left: 20px }
@@ -52,7 +53,7 @@ pre {
 
   &.well-pre {
     border: 1px solid #eee;
-    background: #f9f9f9;
+    background: $gray-light;
     border-radius: 0;
     color: #555;
   }
@@ -121,15 +122,8 @@ p.time {
   text-shadow: none;
 }
 
-.thin_area{
+.thin_area {
   height: 150px;
-}
-
-// Fixes alignment on notes.
-.new_note {
-  label {
-    text-align: left;
-  }
 }
 
 // Fix issue with notes & lists creating a bunch of bottom borders.
@@ -148,7 +142,7 @@ li.note {
   }
 }
 
-.wiki_content code, .readme code{
+.wiki_content code, .readme code {
   background-color: inherit;
 }
 
@@ -231,7 +225,7 @@ li.note {
 
 .milestone {
   &.milestone-closed {
-    background: #f9f9f9;
+    background: $gray-light;
   }
   .progress {
     margin-bottom: 0;
@@ -254,7 +248,7 @@ li.note {
 
 img.emoji {
   height: 20px;
-  vertical-align: middle;
+  vertical-align: top;
   width: 20px;
 }
 
@@ -276,26 +270,11 @@ table {
   }
 }
 
-.dashboard-intro-icon {
-  float: left;
-  text-align: center;
-  font-size: 32px;
-  color: #aaa;
-  width: 60px;
-}
-
-.dashboard-intro-text {
-  display: inline-block;
-  margin-left: -60px;
-  padding-left: 60px;
-  width: 100%;
-}
-
 .btn-sign-in {
   text-shadow: none;
 
   @media (min-width: $screen-sm-min) {
-    margin-top: 11px;
+    margin-top: 8px;
   }
 }
 
@@ -378,6 +357,7 @@ table {
     position: absolute;
     top: 0;
     right: 0;
+    min-width: 250px;
     visibility: hidden;
   }
 }

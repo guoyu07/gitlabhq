@@ -13,6 +13,7 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
     fill_in 'user_website_url', with: 'testurl'
     fill_in 'user_location', with: 'Ukraine'
     fill_in 'user_bio', with: 'I <3 GitLab'
+    fill_in 'user_organization', with: 'GitLab'
     click_button 'Update profile settings'
     @user.reload
   end
@@ -23,6 +24,7 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
     expect(@user.twitter).to eq 'testtwitter'
     expect(@user.website_url).to eq 'testurl'
     expect(@user.bio).to eq 'I <3 GitLab'
+    expect(@user.organization).to eq 'GitLab'
     expect(find('#user_location').value).to eq 'Ukraine'
   end
 
@@ -155,7 +157,11 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
   end
 
   step 'I click on my profile picture' do
-    find(:css, '.sidebar-user').click
+    find(:css, '.header-user-dropdown-toggle').click
+
+    page.within ".header-user" do
+      click_link "Profile"
+    end
   end
 
   step 'I should see my user page' do
@@ -166,7 +172,7 @@ class Spinach::Features::Profile < Spinach::FeatureSteps
   end
 
   step 'I have group with projects' do
-    @group   = create(:group)
+    @group = create(:group)
     @group.add_owner(current_user)
     @project = create(:project, namespace: @group)
     @event   = create(:closed_issue_event, project: @project)

@@ -21,8 +21,8 @@ class Spinach::Features::ProjectSnippets < Spinach::FeatureSteps
            author: project.users.first)
   end
 
-  step 'I click link "New Snippet"' do
-    click_link "New Snippet"
+  step 'I click link "New snippet"' do
+    click_link "New snippet"
   end
 
   step 'I click link "Snippet one"' do
@@ -43,12 +43,12 @@ class Spinach::Features::ProjectSnippets < Spinach::FeatureSteps
 
   step 'I click link "Edit"' do
     page.within ".detail-page-header" do
-      click_link "Edit"
+      first(:link, "Edit").click
     end
   end
 
   step 'I click link "Delete"' do
-    click_link "Delete"
+    first(:link, "Delete").click
   end
 
   step 'I submit new snippet "Snippet three"' do

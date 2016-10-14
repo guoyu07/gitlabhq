@@ -7,6 +7,7 @@ module MergeRequests
   class PostMergeService < MergeRequests::BaseService
     def execute(merge_request)
       close_issues(merge_request)
+      todo_service.merge_merge_request(merge_request, current_user)
       merge_request.mark_as_merged
       create_merge_event(merge_request, current_user)
       create_note(merge_request)
@@ -20,6 +21,7 @@ module MergeRequests
       return unless merge_request.target_branch == project.default_branch
 
       closed_issues = merge_request.closes_issues(current_user)
+
       closed_issues.each do |issue|
         if can?(current_user, :update_issue, issue)
           Issues::CloseService.new(project, current_user, {}).execute(issue, commit: merge_request)

@@ -13,14 +13,12 @@ module GitlabMarkdownHelper
   def link_to_gfm(body, url, html_options = {})
     return "" if body.blank?
 
-    escaped_body = if body =~ /\A\<img/
-                     body
-                   else
-                     escape_once(body)
-                   end
-
-    user = current_user if defined?(current_user)
-    gfm_body = Banzai.render(escaped_body, project: @project, current_user: user, pipeline: :single_line)
+    context = {
+      project: @project,
+      current_user: (current_user if defined?(current_user)),
+      pipeline: :single_line,
+    }
+    gfm_body = Banzai.render(body, context)
 
     fragment = Nokogiri::HTML::DocumentFragment.parse(gfm_body)
     if fragment.children.size == 1 && fragment.children[0].name == 'a'
@@ -50,20 +48,16 @@ module GitlabMarkdownHelper
 
     context[:project] ||= @project
 
-    text = Banzai.pre_process(text, context)
-
     html = Banzai.render(text, context)
+    banzai_postprocess(html, context)
+  end
 
-    context.merge!(
-      current_user:   (current_user if defined?(current_user)),
+  def markdown_field(object, field)
+    object = object.for_display if object.respond_to?(:for_display)
+    return "" unless object.present?
 
-      # RelativeLinkFilter
-      requested_path: @path,
-      project_wiki:   @project_wiki,
-      ref:            @ref
-    )
-
-    Banzai.post_process(html, context)
+    html = Banzai.render_field(object, field)
+    banzai_postprocess(html, object.banzai_render_context(field))
   end
 
   def asciidoc(text)
@@ -108,35 +102,12 @@ module GitlabMarkdownHelper
   def render_wiki_content(wiki_page)
     case wiki_page.format
     when :markdown
-      markdown(wiki_page.content, pipeline: :wiki, project_wiki: @project_wiki)
+      markdown(wiki_page.content, pipeline: :wiki, project_wiki: @project_wiki, page_slug: wiki_page.slug)
     when :asciidoc
       asciidoc(wiki_page.content)
     else
       wiki_page.formatted_content.html_safe
     end
-  end
-
-  MARKDOWN_TIPS = [
-    "End a line with two or more spaces for a line-break, or soft-return",
-    "Inline code can be denoted by `surrounding it with backticks`",
-    "Blocks of code can be denoted by three backticks ``` or four leading spaces",
-    "Emoji can be added by :emoji_name:, for example :thumbsup:",
-    "Notify other participants using @user_name",
-    "Notify a specific group using @group_name",
-    "Notify the entire team using @all",
-    "Reference an issue using a hash, for example issue #123",
-    "Reference a merge request using an exclamation point, for example MR !123",
-    "Italicize words or phrases using *asterisks* or _underscores_",
-    "Bold words or phrases using **double asterisks** or __double underscores__",
-    "Strikethrough words or phrases using ~~two tildes~~",
-    "Make a bulleted list using + pluses, - minuses, or * asterisks",
-    "Denote blockquotes using > at the beginning of a line",
-    "Make a horizontal line using three or more hyphens ---, asterisks ***, or underscores ___"
-  ].freeze
-
-  # Returns a random markdown tip for use as a textarea placeholder
-  def random_markdown_tip
-    MARKDOWN_TIPS.sample
   end
 
   private
@@ -207,5 +178,32 @@ module GitlabMarkdownHelper
     else
       ''
     end
+  end
+
+  def markdown_toolbar_button(options = {})
+    data = options[:data].merge({ container: "body" })
+    content_tag :button,
+      type: "button",
+      class: "toolbar-btn js-md has-tooltip hidden-xs",
+      tabindex: -1,
+      data: data,
+      title: options[:title],
+      aria: { label: options[:title] } do
+      icon(options[:icon])
+    end
+  end
+
+  # Calls Banzai.post_process with some common context options
+  def banzai_postprocess(html, context)
+    context.merge!(
+      current_user:   (current_user if defined?(current_user)),
+
+      # RelativeLinkFilter
+      requested_path: @path,
+      project_wiki:   @project_wiki,
+      ref:            @ref
+    )
+
+    Banzai.post_process(html, context)
   end
 end

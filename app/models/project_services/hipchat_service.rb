@@ -1,24 +1,3 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#  build_events          :boolean          default(FALSE), not null
-#
-
 class HipchatService < Service
   MAX_COMMITS = 3
 
@@ -60,14 +39,14 @@ class HipchatService < Service
   end
 
   def supported_events
-    %w(push issue merge_request note tag_push build)
+    %w(push issue confidential_issue merge_request note tag_push build)
   end
 
   def execute(data)
     return unless supported_events.include?(data[:object_kind])
     message = create_message(data)
     return unless message.present?
-    gate[room].send('GitLab', message, message_options)
+    gate[room].send('GitLab', message, message_options(data))
   end
 
   def test(data)
@@ -88,8 +67,8 @@ class HipchatService < Service
     @gate ||= HipChat::Client.new(token, options)
   end
 
-  def message_options
-    { notify: notify.present? && notify == '1', color: color || 'yellow' }
+  def message_options(data = nil)
+    { notify: notify.present? && notify == '1', color: message_color(data) }
   end
 
   def create_message(data)
@@ -127,7 +106,7 @@ class HipchatService < Service
     else
       message << "pushed to #{ref_type} <a href=\""\
                   "#{project.web_url}/commits/#{CGI.escape(ref)}\">#{ref}</a> "
-      message << "of <a href=\"#{project.web_url}\">#{project.name_with_namespace.gsub!(/\s/,'')}</a> "
+      message << "of <a href=\"#{project.web_url}\">#{project.name_with_namespace.gsub!(/\s/, '')}</a> "
       message << "(<a href=\"#{project.web_url}/compare/#{before}...#{after}\">Compare changes</a>)"
 
       push[:commits].take(MAX_COMMITS).each do |commit|
@@ -183,7 +162,7 @@ class HipchatService < Service
     title = obj_attr[:title]
 
     merge_request_url = "#{project_url}/merge_requests/#{merge_request_id}"
-    merge_request_link = "<a href=\"#{merge_request_url}\">merge request ##{merge_request_id}</a>"
+    merge_request_link = "<a href=\"#{merge_request_url}\">merge request !#{merge_request_id}</a>"
     message = "#{user_name} #{state} #{merge_request_link} in " \
       "#{project_link}: <b>#{title}</b>"
 
@@ -224,7 +203,7 @@ class HipchatService < Service
     when "MergeRequest"
       subj_attr = HashWithIndifferentAccess.new(data[:merge_request])
       subject_id = subj_attr[:iid]
-      subject_desc = "##{subject_id}"
+      subject_desc = "!#{subject_id}"
       subject_type = "merge request"
       title = format_title(subj_attr[:title])
     when "Snippet"
@@ -259,6 +238,21 @@ class HipchatService < Service
     commit_link = "<a href=\"#{project_url}/commit/#{CGI.escape(sha)}/builds\">#{Commit.truncate_sha(sha)}</a>"
 
     "#{project_link}: Commit #{commit_link} of #{branch_link} #{ref_type} by #{user_name} #{humanized_status(status)} in #{duration} second(s)"
+  end
+
+  def message_color(data)
+    build_status_color(data) || color || 'yellow'
+  end
+
+  def build_status_color(data)
+    return unless data && data[:object_kind] == 'build'
+
+    case data[:commit][:status]
+    when 'success'
+      'green'
+    else
+      'red'
+    end
   end
 
   def project_name

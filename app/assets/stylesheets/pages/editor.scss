@@ -1,7 +1,7 @@
 .file-editor {
-  #editor{
+  #editor {
     border: none;
-    @include border-radius(0);
+    border-radius: 0;
     height: 500px;
     margin: 0;
     padding: 0;
@@ -23,9 +23,13 @@
   .file-title {
     @extend .monospace;
 
-    line-height: 42px;
+    line-height: 35px;
     padding-top: 7px;
     padding-bottom: 7px;
+
+    .pull-right {
+      height: 20px;
+    }
   }
 
   .editor-ref {
@@ -39,7 +43,7 @@
 
   .editor-file-name {
     @extend .monospace;
-    
+
     float: left;
     margin-right: 10px;
   }
@@ -52,5 +56,50 @@
 
   .select2 {
     float: right;
+  }
+
+  .encoding-selector,
+  .soft-wrap-toggle,
+  .license-selector,
+  .gitignore-selector,
+  .gitlab-ci-yml-selector {
+    display: inline-block;
+    vertical-align: top;
+    font-family: $regular_font;
+  }
+
+  .soft-wrap-toggle {
+    margin: 0 $btn-side-margin;
+    .soft-wrap {
+      display: block;
+    }
+    .no-wrap {
+      display: none;
+    }
+    &.soft-wrap-active {
+      .soft-wrap {
+        display: none;
+      }
+      .no-wrap {
+        display: block;
+      }
+    }
+  }
+
+  .gitignore-selector, .license-selector, .gitlab-ci-yml-selector {
+    .dropdown {
+      line-height: 21px;
+    }
+
+    .dropdown-menu-toggle {
+      vertical-align: top;
+      width: 220px;
+    }
+  }
+
+  .gitlab-ci-yml-selector {
+    .dropdown-menu-toggle {
+      width: 250px;
+    }
   }
 }

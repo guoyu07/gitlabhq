@@ -21,6 +21,16 @@
 
   // Diff line
   .line_holder {
+    &.match .line_content {
+      @include dark-diff-match-line;
+    }
+
+    td.diff-line-num.hll:not(.empty-cell),
+    td.line_content.hll:not(.empty-cell) {
+      background-color: #557;
+      border-color: darken(#557, 15%);
+    }
+
     .diff-line-num.new, .line_content.new {
       @include diff_background(rgba(51, 255, 51, 0.1), rgba(51, 255, 51, 0.2), #808080);
     }
@@ -30,8 +40,7 @@
     }
 
     .line_content.match {
-      color: rgba(255, 255, 255, 0.3);
-      background: rgba(255, 255, 255, 0.1);
+      @include dark-diff-match-line;
     }
   }
 

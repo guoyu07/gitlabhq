@@ -39,9 +39,10 @@ module DropdownsHelper
     end
   end
 
-  def dropdown_toggle(toggle_text, data_attr, options)
+  def dropdown_toggle(toggle_text, data_attr, options = {})
+    default_label = data_attr[:default_label]
     content_tag(:button, class: "dropdown-menu-toggle #{options[:toggle_class] if options.has_key?(:toggle_class)}", id: (options[:id] if options.has_key?(:id)), type: "button", data: data_attr) do
-      output = content_tag(:span, toggle_text, class: "dropdown-toggle-text")
+      output = content_tag(:span, toggle_text, class: "dropdown-toggle-text #{'is-default' if toggle_text == default_label}")
       output << icon('chevron-down')
       output.html_safe
     end
@@ -60,17 +61,18 @@ module DropdownsHelper
       title_output << content_tag(:span, title)
 
       title_output << content_tag(:button, class: "dropdown-title-button dropdown-menu-close", aria: { label: "Close" }, type: "button") do
-        icon('times')
+        icon('times', class: 'dropdown-menu-close-icon')
       end
 
       title_output.html_safe
     end
   end
 
-  def dropdown_filter(placeholder)
+  def dropdown_filter(placeholder, search_id: nil)
     content_tag :div, class: "dropdown-input" do
-      filter_output = search_field_tag nil, nil, class: "dropdown-input-field", placeholder: placeholder
-      filter_output << icon('search')
+      filter_output = search_field_tag search_id, nil, class: "dropdown-input-field", placeholder: placeholder, autocomplete: 'off'
+      filter_output << icon('search', class: "dropdown-input-search")
+      filter_output << icon('times', class: "dropdown-input-clear js-dropdown-input-clear", role: "button")
 
       filter_output.html_safe
     end

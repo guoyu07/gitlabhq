@@ -15,7 +15,7 @@ module SharedProject
   # Create a specific project called "Shop"
   step 'I own project "Shop"' do
     @project = Project.find_by(name: "Shop")
-    @project ||= create(:project, name: "Shop", namespace: @user.namespace, snippets_enabled: true)
+    @project ||= create(:project, name: "Shop", namespace: @user.namespace)
     @project.team << [@user, :master]
   end
 
@@ -41,6 +41,8 @@ module SharedProject
   step 'I own project "Forum"' do
     @project = Project.find_by(name: "Forum")
     @project ||= create(:project, name: "Forum", namespace: @user.namespace, path: 'forum_project')
+    @project.build_project_feature
+    @project.project_feature.save
     @project.team << [@user, :master]
   end
 
@@ -95,7 +97,7 @@ module SharedProject
   step 'I should see project settings' do
     expect(current_path).to eq edit_namespace_project_path(@project.namespace, @project)
     expect(page).to have_content("Project name")
-    expect(page).to have_content("Features:")
+    expect(page).to have_content("Feature Visibility")
   end
 
   def current_project
@@ -223,6 +225,11 @@ module SharedProject
     create(:label, project: project, title: 'enhancement')
   end
 
+  step 'project "Shop" has issue: "bug report"' do
+    project = Project.find_by(name: "Shop")
+    create(:issue, project: project, title: "bug report")
+  end
+
   step 'project "Shop" has CI enabled' do
     project = Project.find_by(name: "Shop")
     project.enable_ci
@@ -230,7 +237,7 @@ module SharedProject
 
   step 'project "Shop" has CI build' do
     project = Project.find_by(name: "Shop")
-    create :ci_commit, project: project, sha: project.commit.sha
+    create :ci_pipeline, project: project, sha: project.commit.sha, ref: 'master', status: 'skipped'
   end
 
   step 'I should see last commit with CI status' do

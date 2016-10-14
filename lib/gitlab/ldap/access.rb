@@ -25,7 +25,7 @@ module Gitlab
         end
       end
 
-      def initialize(user, adapter=nil)
+      def initialize(user, adapter = nil)
         @adapter = adapter
         @user = user
         @provider = user.ldap_identity.provider
@@ -33,7 +33,10 @@ module Gitlab
 
       def allowed?
         if ldap_user
-          return true unless ldap_config.active_directory
+          unless ldap_config.active_directory
+            user.activate if user.ldap_blocked?
+            return true
+          end
 
           # Block user in GitLab if he/she was blocked in AD
           if Gitlab::LDAP::Person.disabled_via_active_directory?(user.ldap_identity.extern_uid, adapter)
@@ -48,8 +51,6 @@ module Gitlab
           user.ldap_block
           false
         end
-      rescue
-        false
       end
 
       def adapter

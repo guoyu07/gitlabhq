@@ -1,5 +1,4 @@
 module EmailsHelper
-
   # Google Actions
   # https://developers.google.com/gmail/markup/reference/go-to-action
   def email_action(url)
@@ -30,12 +29,6 @@ module EmailsHelper
     end
 
     nil
-  end
-
-  def color_email_diff(diffcontent)
-    formatter = Rouge::Formatters::HTML.new(css_class: 'highlight', inline_theme: 'github')
-    lexer = Rouge::Lexers::Diff
-    raw formatter.format(lexer.lex(diffcontent))
   end
 
   def password_reset_token_valid_time

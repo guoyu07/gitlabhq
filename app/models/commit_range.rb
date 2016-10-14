@@ -4,12 +4,10 @@
 #
 #   range = CommitRange.new('f3f85602...e86e1013', project)
 #   range.exclude_start?  # => false
-#   range.reference_title # => "Commits f3f85602 through e86e1013"
 #   range.to_s            # => "f3f85602...e86e1013"
 #
 #   range = CommitRange.new('f3f856029bc5f966c5a7ee24cf7efefdd20e6019..e86e1013709735be5bb767e2b228930c543f25ae', project)
 #   range.exclude_start?  # => true
-#   range.reference_title # => "Commits f3f85602^ through e86e1013"
 #   range.to_param        # => {from: "f3f856029bc5f966c5a7ee24cf7efefdd20e6019^", to: "e86e1013709735be5bb767e2b228930c543f25ae"}
 #   range.to_s            # => "f3f85602..e86e1013"
 #
@@ -23,7 +21,7 @@ class CommitRange
   attr_reader :commit_from, :notation, :commit_to
   attr_reader :ref_from, :ref_to
 
-  # Optional Project model
+  # The Project model
   attr_accessor :project
 
   # The beginning and ending refs can be named or SHAs, and
@@ -43,26 +41,26 @@ class CommitRange
   #
   # This pattern supports cross-project references.
   def self.reference_pattern
-    %r{
+    @reference_pattern ||= %r{
       (?:#{Project.reference_pattern}#{reference_prefix})?
       (?<commit_range>#{STRICT_PATTERN})
     }x
   end
 
   def self.link_reference_pattern
-    super("compare", /(?<commit_range>#{PATTERN})/)
+    @link_reference_pattern ||= super("compare", /(?<commit_range>#{PATTERN})/)
   end
 
   # Initialize a CommitRange
   #
   # range_string - The String commit range.
-  # project      - An optional Project model.
+  # project      - The Project model.
   #
   # Raises ArgumentError if `range_string` does not match `PATTERN`.
   def initialize(range_string, project)
     @project = project
 
-    range_string.strip!
+    range_string = range_string.strip
 
     unless range_string =~ /\A#{PATTERN}\z/
       raise ArgumentError, "invalid CommitRange string format: #{range_string}"
@@ -82,7 +80,7 @@ class CommitRange
   end
 
   def inspect
-    %(#<#{self.class}:#{object_id} #{to_s}>)
+    %(#<#{self.class}:#{object_id} #{self}>)
   end
 
   def to_s
@@ -107,11 +105,6 @@ class CommitRange
     end
 
     reference
-  end
-
-  # Returns a String for use in a link's title attribute
-  def reference_title
-    "Commits #{sha_start} through #{sha_to}"
   end
 
   # Return a Hash of parameters for passing to a URL helper

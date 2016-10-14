@@ -19,13 +19,12 @@ class Projects::MilestonesController < Projects::ApplicationController
       end
 
     @milestones = @milestones.includes(:project)
-
     respond_to do |format|
       format.html do
         @milestones = @milestones.page(params[:page])
       end
       format.json do
-        render json: @milestones
+        render json: @milestones.to_json(methods: :name)
       end
     end
   end
@@ -76,7 +75,7 @@ class Projects::MilestonesController < Projects::ApplicationController
 
     respond_to do |format|
       format.html { redirect_to namespace_project_milestones_path }
-      format.js { render nothing: true }
+      format.js { head :ok }
     end
   end
 
@@ -107,7 +106,7 @@ class Projects::MilestonesController < Projects::ApplicationController
   end
 
   def module_enabled
-    unless @project.issues_enabled || @project.merge_requests_enabled
+    unless @project.feature_available?(:issues, current_user) || @project.feature_available?(:merge_requests, current_user)
       return render_404
     end
   end

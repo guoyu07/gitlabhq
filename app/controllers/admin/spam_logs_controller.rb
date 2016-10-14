@@ -11,7 +11,17 @@ class Admin::SpamLogsController < Admin::ApplicationController
       redirect_to admin_spam_logs_path, notice: "User #{spam_log.user.username} was successfully removed."
     else
       spam_log.destroy
-      render nothing: true
+      head :ok
+    end
+  end
+
+  def mark_as_ham
+    spam_log = SpamLog.find(params[:id])
+
+    if HamService.new(spam_log).mark_as_ham!
+      redirect_to admin_spam_logs_path, notice: 'Spam log successfully submitted as ham.'
+    else
+      redirect_to admin_spam_logs_path, alert: 'Error with Akismet. Please check the logs for more info.'
     end
   end
 end

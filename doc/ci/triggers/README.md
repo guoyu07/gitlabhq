@@ -1,6 +1,10 @@
 # Triggering Builds through the API
 
-_**Note:** This feature was [introduced][ci-229] in GitLab CE 7.14_
+> [Introduced][ci-229] in GitLab CE 7.14.
+
+> **Note**:
+GitLab 8.12 has a completely redesigned build permissions system.
+Read all about the [new model and its implications](../../user/project/new_ci_build_permissions_model.md#build-triggers).
 
 Triggers can be used to force a rebuild of a specific branch, tag or commit,
 with an API call.
@@ -33,7 +37,7 @@ POST /projects/:id/trigger/builds
 
 The required parameters are the trigger's `token` and the Git `ref` on which
 the trigger will be performed. Valid refs are the branch, the tag or the commit
-SHA. The `:id` of a project can be found by [querying the API](../api/projects.md)
+SHA. The `:id` of a project can be found by [querying the API](../../api/projects.md)
 or by visiting the **Triggers** page which provides self-explanatory examples.
 
 When a rebuild is triggered, the information is exposed in GitLab's UI under
@@ -77,14 +81,20 @@ See the [Examples](#examples) section below for more details.
 Using cURL you can trigger a rebuild with minimal effort, for example:
 
 ```bash
-curl -X POST \
-     -F token=TOKEN \
-     -F ref=master \
+curl --request POST \
+     --form token=TOKEN \
+     --form ref=master \
      https://gitlab.example.com/api/v3/projects/9/trigger/builds
 ```
 
 In this case, the project with ID `9` will get rebuilt on `master` branch.
 
+Alternatively, you can pass the `token` and `ref` arguments in the query string:
+
+```bash
+curl --request POST \
+    "https://gitlab.example.com/api/v3/projects/9/trigger/builds?token=TOKEN&ref=master"
+```
 
 ### Triggering a build within `.gitlab-ci.yml`
 
@@ -97,7 +107,7 @@ need to add in project's A `.gitlab-ci.yml`:
 build_docs:
   stage: deploy
   script:
-  - "curl -X POST -F token=TOKEN -F ref=master https://gitlab.example.com/api/v3/projects/9/trigger/builds"
+  - "curl --request POST --form token=TOKEN --form ref=master https://gitlab.example.com/api/v3/projects/9/trigger/builds"
   only:
   - tags
 ```
@@ -152,10 +162,10 @@ You can then trigger a rebuild while you pass the `UPLOAD_TO_S3` variable
 and the script of the `upload_package` job will run:
 
 ```bash
-curl -X POST \
-  -F token=TOKEN \
-  -F ref=master \
-  -F "variables[UPLOAD_TO_S3]=true" \
+curl --request POST \
+  --form token=TOKEN \
+  --form ref=master \
+  --form "variables[UPLOAD_TO_S3]=true" \
   https://gitlab.example.com/api/v3/projects/9/trigger/builds
 ```
 
@@ -166,7 +176,7 @@ in conjunction with cron. The example below triggers a build on the `master`
 branch of project with ID `9` every night at `00:30`:
 
 ```bash
-30 0 * * * curl -X POST -F token=TOKEN -F ref=master https://gitlab.example.com/api/v3/projects/9/trigger/builds
+30 0 * * * curl --request POST --form token=TOKEN --form ref=master https://gitlab.example.com/api/v3/projects/9/trigger/builds
 ```
 
 [ci-229]: https://gitlab.com/gitlab-org/gitlab-ci/merge_requests/229

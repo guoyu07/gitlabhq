@@ -1,19 +1,6 @@
-# == Schema Information
-#
-# Table name: identities
-#
-#  id         :integer          not null, primary key
-#  extern_uid :string(255)
-#  provider   :string(255)
-#  user_id    :integer
-#  created_at :datetime
-#  updated_at :datetime
-#
-
 require 'spec_helper'
 
 RSpec.describe Identity, models: true do
-
   describe 'relations' do
     it { is_expected.to belong_to(:user) }
   end

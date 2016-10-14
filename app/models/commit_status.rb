@@ -1,81 +1,83 @@
-# == Schema Information
-#
-# Table name: ci_builds
-#
-#  id                 :integer          not null, primary key
-#  project_id         :integer
-#  status             :string(255)
-#  finished_at        :datetime
-#  trace              :text
-#  created_at         :datetime
-#  updated_at         :datetime
-#  started_at         :datetime
-#  runner_id          :integer
-#  coverage           :float
-#  commit_id          :integer
-#  commands           :text
-#  job_id             :integer
-#  name               :string(255)
-#  deploy             :boolean          default(FALSE)
-#  options            :text
-#  allow_failure      :boolean          default(FALSE), not null
-#  stage              :string(255)
-#  trigger_request_id :integer
-#  stage_idx          :integer
-#  tag                :boolean
-#  ref                :string(255)
-#  user_id            :integer
-#  type               :string(255)
-#  target_url         :string(255)
-#  description        :string(255)
-#  artifacts_file     :text
-#  gl_project_id      :integer
-#
-
 class CommitStatus < ActiveRecord::Base
+  include HasStatus
+  include Importable
+  include AfterCommitQueue
+
   self.table_name = 'ci_builds'
 
   belongs_to :project, class_name: '::Project', foreign_key: :gl_project_id
-  belongs_to :commit, class_name: 'Ci::Commit'
+  belongs_to :pipeline, class_name: 'Ci::Pipeline', foreign_key: :commit_id
   belongs_to :user
 
-  validates :commit, presence: true
-  validates :status, inclusion: { in: %w(pending running failed success canceled) }
+  delegate :commit, to: :pipeline
+
+  validates :pipeline, presence: true, unless: :importing?
 
   validates_presence_of :name
 
   alias_attribute :author, :user
 
-  scope :running, -> { where(status: 'running') }
-  scope :pending, -> { where(status: 'pending') }
-  scope :success, -> { where(status: 'success') }
-  scope :failed, -> { where(status: 'failed')  }
-  scope :running_or_pending, -> { where(status: [:running, :pending]) }
-  scope :finished, -> { where(status: [:success, :failed, :canceled]) }
-  scope :latest, -> { where(id: unscope(:select).select('max(id)').group(:name, :ref)) }
-  scope :ordered, -> { order(:ref, :stage_idx, :name) }
-  scope :for_ref, ->(ref) { where(ref: ref) }
+  scope :latest, -> do
+    max_id = unscope(:select).select("max(#{quoted_table_name}.id)")
 
-  AVAILABLE_STATUSES = ['pending', 'running', 'success', 'failed', 'canceled']
+    where(id: max_id.group(:name, :commit_id))
+  end
 
-  state_machine :status, initial: :pending do
+  scope :retried, -> { where.not(id: latest) }
+  scope :ordered, -> { order(:name) }
+
+  scope :failed_but_allowed, -> do
+    where(allow_failure: true, status: [:failed, :canceled])
+  end
+
+  scope :exclude_ignored, -> do
+    quoted_when = connection.quote_column_name('when')
+    # We want to ignore failed_but_allowed jobs
+    where("allow_failure = ? OR status IN (?)",
+      false, all_state_names - [:failed, :canceled]).
+      # We want to ignore skipped manual jobs
+      where("#{quoted_when} <> ? OR status <> ?", 'manual', 'skipped').
+      # We want to ignore skipped on_failure
+      where("#{quoted_when} <> ? OR status <> ?", 'on_failure', 'skipped')
+  end
+
+  scope :latest_ci_stages, -> { latest.ordered.includes(project: :namespace) }
+  scope :retried_ci_stages, -> { retried.ordered.includes(project: :namespace) }
+
+  state_machine :status do
+    event :enqueue do
+      transition [:created, :skipped] => :pending
+    end
+
+    event :process do
+      transition skipped: :created
+    end
+
     event :run do
       transition pending: :running
     end
 
+    event :skip do
+      transition [:created, :pending] => :skipped
+    end
+
     event :drop do
-      transition [:pending, :running] => :failed
+      transition [:created, :pending, :running] => :failed
     end
 
     event :success do
-      transition [:pending, :running] => :success
+      transition [:created, :pending, :running] => :success
     end
 
     event :cancel do
-      transition [:pending, :running] => :canceled
+      transition [:created, :pending, :running] => :canceled
     end
 
-    after_transition pending: :running do |commit_status|
+    after_transition created: [:pending, :running] do |commit_status|
+      commit_status.update_attributes queued_at: Time.now
+    end
+
+    after_transition [:created, :pending] => :running do |commit_status|
       commit_status.update_attributes started_at: Time.now
     end
 
@@ -83,46 +85,72 @@ class CommitStatus < ActiveRecord::Base
       commit_status.update_attributes finished_at: Time.now
     end
 
-    after_transition [:pending, :running] => :success do |commit_status|
-      MergeRequests::MergeWhenBuildSucceedsService.new(commit_status.commit.project, nil).trigger(commit_status)
+    after_transition do |commit_status, transition|
+      return if transition.loopback?
+
+      commit_status.run_after_commit do
+        pipeline.try do |pipeline|
+          if complete?
+            ProcessPipelineWorker.perform_async(pipeline.id)
+          else
+            UpdatePipelineWorker.perform_async(pipeline.id)
+          end
+        end
+      end
     end
 
-    state :pending, value: 'pending'
-    state :running, value: 'running'
-    state :failed, value: 'failed'
-    state :success, value: 'success'
-    state :canceled, value: 'canceled'
+    after_transition [:created, :pending, :running] => :success do |commit_status|
+      commit_status.run_after_commit do
+        # TODO, temporary fix for race condition
+        UpdatePipelineWorker.new.perform(pipeline.id)
+
+        MergeRequests::MergeWhenBuildSucceedsService
+          .new(pipeline.project, nil).trigger(self)
+      end
+    end
+
+    after_transition any => :failed do |commit_status|
+      commit_status.run_after_commit do
+        MergeRequests::AddTodoWhenBuildFailsService
+          .new(pipeline.project, nil).execute(self)
+      end
+    end
   end
 
-  delegate :sha, :short_sha, to: :commit, prefix: false
+  delegate :sha, :short_sha, to: :pipeline
 
-  # TODO: this should be removed with all references
   def before_sha
-    Gitlab::Git::BLANK_SHA
+    pipeline.before_sha || Gitlab::Git::BLANK_SHA
   end
 
-  def started?
-    !pending? && !canceled? && started_at
+  def group_name
+    name.gsub(/\d+[\s:\/\\]+\d+\s*/, '').strip
   end
 
-  def active?
-    running? || pending?
+  def self.stages
+    # We group by stage name, but order stages by theirs' index
+    unscoped.from(all, :sg).group('stage').order('max(stage_idx)', 'stage').pluck('sg.stage')
   end
 
-  def complete?
-    canceled? || success? || failed?
+  def self.stages_status
+    # We execute subquery for each stage to calculate a stage status
+    statuses = unscoped.from(all, :sg).group('stage').pluck('sg.stage', all.where('stage=sg.stage').status_sql)
+    statuses.inject({}) do |h, k|
+      h[k.first] = k.last
+      h
+    end
   end
 
-  def ignored?
+  def failed_but_allowed?
     allow_failure? && (failed? || canceled?)
   end
 
+  def playable?
+    false
+  end
+
   def duration
-    if started_at && finished_at
-      finished_at - started_at
-    elsif started_at
-      Time.now - started_at
-    end
+    calculate_duration
   end
 
   def stuck?

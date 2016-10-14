@@ -24,6 +24,7 @@ module Issues
         @new_issue = create_new_issue
 
         rewrite_notes
+        rewrite_award_emoji
         add_note_moved_from
 
         # Old issue tasks
@@ -41,22 +42,54 @@ module Issues
     private
 
     def create_new_issue
-      new_params = { id: nil, iid: nil, label_ids: [], milestone: nil,
+      new_params = { id: nil, iid: nil, label_ids: cloneable_label_ids,
+                     milestone_id: cloneable_milestone_id,
                      project: @new_project, author: @old_issue.author,
-                     description: unfold_references(@old_issue.description) }
+                     description: rewrite_content(@old_issue.description) }
 
-      new_params = @old_issue.serializable_hash.merge(new_params)
+      new_params = @old_issue.serializable_hash.symbolize_keys.merge(new_params)
       CreateService.new(@new_project, @current_user, new_params).execute
+    end
+
+    def cloneable_label_ids
+      @new_project.labels
+        .where(title: @old_issue.labels.pluck(:title)).pluck(:id)
+    end
+
+    def cloneable_milestone_id
+      @new_project.milestones
+        .find_by(title: @old_issue.milestone.try(:title)).try(:id)
     end
 
     def rewrite_notes
       @old_issue.notes.find_each do |note|
         new_note = note.dup
         new_params = { project: @new_project, noteable: @new_issue,
-                       note: unfold_references(new_note.note),
-                       created_at: note.created_at }
+                       note: rewrite_content(new_note.note),
+                       created_at: note.created_at,
+                       updated_at: note.updated_at }
 
         new_note.update(new_params)
+      end
+    end
+
+    def rewrite_award_emoji
+      @old_issue.award_emoji.each do |award|
+        new_award = award.dup
+        new_award.awardable = @new_issue
+        new_award.save
+      end
+    end
+
+    def rewrite_content(content)
+      return unless content
+
+      rewriters = [Gitlab::Gfm::ReferenceRewriter,
+                   Gitlab::Gfm::UploadsRewriter]
+
+      rewriters.inject(content) do |text, klass|
+        rewriter = klass.new(text, @old_project, @current_user)
+        rewriter.rewrite(@new_project)
       end
     end
 
@@ -77,18 +110,12 @@ module Issues
                                        direction: :to)
     end
 
-    def unfold_references(content)
-      rewriter = Gitlab::Gfm::ReferenceRewriter.new(content, @old_project,
-                                                    @current_user)
-      rewriter.rewrite(@new_project)
+    def mark_as_moved
+      @old_issue.update(moved_to: @new_issue)
     end
 
     def notify_participants
       notification_service.issue_moved(@old_issue, @new_issue, @current_user)
-    end
-
-    def mark_as_moved
-      @old_issue.update(moved_to: @new_issue)
     end
   end
 end

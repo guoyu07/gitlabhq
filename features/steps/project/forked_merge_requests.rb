@@ -34,10 +34,17 @@ class Spinach::Features::ProjectForkedMergeRequests < Spinach::FeatureSteps
   end
 
   step 'I fill out a "Merge Request On Forked Project" merge request' do
-    select @forked_project.path_with_namespace, from: "merge_request_source_project_id"
-    select @project.path_with_namespace, from: "merge_request_target_project_id"
-    select "fix", from: "merge_request_source_branch"
-    select "master", from: "merge_request_target_branch"
+    expect(page).to have_content('Source branch')
+    expect(page).to have_content('Target branch')
+
+    first('.js-source-project').click
+    first('.dropdown-source-project a', text: @forked_project.path_with_namespace)
+
+    first('.js-target-project').click
+    first('.dropdown-target-project a', text: @project.path_with_namespace)
+
+    first('.js-source-branch').click
+    first('.dropdown-source-branch .dropdown-content a', text: 'fix').click
 
     click_button "Compare branches and continue"
 
@@ -110,15 +117,15 @@ class Spinach::Features::ProjectForkedMergeRequests < Spinach::FeatureSteps
 
   step 'I see the edit page prefilled for "Merge Request On Forked Project"' do
     expect(current_path).to eq edit_namespace_project_merge_request_path(@project.namespace, @project, @merge_request)
-    expect(page).to have_content "Edit merge request ##{@merge_request.id}"
+    expect(page).to have_content "Edit merge request #{@merge_request.to_reference}"
     expect(find("#merge_request_title").value).to eq "Merge Request On Forked Project"
   end
 
   step 'I fill out an invalid "Merge Request On Forked Project" merge request' do
-    expect(find(:select, "merge_request_source_project_id", {}).value).to eq @forked_project.id.to_s
-    expect(find(:select, "merge_request_target_project_id", {}).value).to eq @project.id.to_s
-    expect(find(:select, "merge_request_source_branch", {}).value).to eq ""
-    expect(find(:select, "merge_request_target_branch", {}).value).to eq "master"
+    expect(find_by_id("merge_request_source_project_id", visible: false).value).to eq @forked_project.id.to_s
+    expect(find_by_id("merge_request_target_project_id", visible: false).value).to eq @project.id.to_s
+    expect(find_by_id("merge_request_source_branch", visible: false).value).to eq nil
+    expect(find_by_id("merge_request_target_branch", visible: false).value).to eq "master"
     click_button "Compare branches"
   end
 
@@ -127,28 +134,28 @@ class Spinach::Features::ProjectForkedMergeRequests < Spinach::FeatureSteps
   end
 
   step 'the target repository should be the original repository' do
-    expect(page).to have_select("merge_request_target_project_id", selected: @project.path_with_namespace)
+    expect(find_by_id("merge_request_target_project_id").value).to eq "#{@project.id}"
   end
 
   step 'I click "Assign to" dropdown"' do
-    first('.ajax-users-select').click
+    click_button 'Assignee'
   end
 
   step 'I should see the target project ID in the input selector' do
-    expect(page).to have_selector("input[data-project-id=\"#{@project.id}\"]")
+    expect(find('.js-assignee-search')["data-project-id"]).to eq "#{@project.id}"
   end
 
   step 'I should see the users from the target project ID' do
-    expect(page).to have_selector('.user-result', visible: true, count: 3)
-    users = page.all('.user-name')
-    expect(users[0].text).to eq 'Unassigned'
-    expect(users[1].text).to eq current_user.name
-    expect(users[2].text).to eq @project.users.first.name
+    page.within '.dropdown-menu-user' do
+      expect(page).to have_content 'Unassigned'
+      expect(page).to have_content current_user.name
+      expect(page).to have_content @project.users.first.name
+    end
   end
 
   # Verify a link is generated against the correct project
   def verify_commit_link(container_div, container_project)
     # This should force a wait for the javascript to execute
-    expect(find(:div,container_div).find(".commit_short_id")['href']).to have_content "#{container_project.path_with_namespace}/commit"
+    expect(find(:div, container_div).find(".commit_short_id")['href']).to have_content "#{container_project.path_with_namespace}/commit"
   end
 end

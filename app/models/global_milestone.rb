@@ -4,17 +4,24 @@ class GlobalMilestone
   attr_accessor :title, :milestones
   alias_attribute :name, :title
 
+  def for_display
+    @first_milestone
+  end
+
   def self.build_collection(milestones)
     milestones = milestones.group_by(&:title)
 
     milestones.map do |title, milestones|
-      new(title, milestones)
+      milestones_relation = Milestone.where(id: milestones.map(&:id))
+      new(title, milestones_relation)
     end
   end
 
   def initialize(title, milestones)
     @title = title
+    @name = title
     @milestones = milestones
+    @first_milestone = milestones.find {|m| m.description.present? } || milestones.first
   end
 
   def safe_title
@@ -30,7 +37,7 @@ class GlobalMilestone
   end
 
   def projects
-    @projects ||= Project.for_milestones(milestones.map(&:id))
+    @projects ||= Project.for_milestones(milestones.select(:id))
   end
 
   def state
@@ -52,19 +59,19 @@ class GlobalMilestone
   end
 
   def issues
-    @issues ||= Issue.of_milestones(milestones.map(&:id)).includes(:project)
+    @issues ||= Issue.of_milestones(milestones.select(:id)).includes(:project, :assignee, :labels)
   end
 
   def merge_requests
-    @merge_requests ||= MergeRequest.of_milestones(milestones.map(&:id)).includes(:target_project)
+    @merge_requests ||= MergeRequest.of_milestones(milestones.select(:id)).includes(:target_project, :assignee, :labels)
   end
 
   def participants
-    @participants ||= milestones.map(&:participants).flatten.compact.uniq
+    @participants ||= milestones.includes(:participants).map(&:participants).flatten.compact.uniq
   end
 
   def labels
-    @labels ||= GlobalLabel.build_collection(milestones.map(&:labels).flatten)
+    @labels ||= GlobalLabel.build_collection(milestones.includes(:labels).map(&:labels).flatten)
                            .sort_by!(&:title)
   end
 

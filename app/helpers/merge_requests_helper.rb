@@ -27,7 +27,7 @@ module MergeRequestsHelper
   end
 
   def ci_build_details_path(merge_request)
-    build_url = merge_request.source_project.ci_service.build_page(merge_request.last_commit.sha, merge_request.source_branch)
+    build_url = merge_request.source_project.ci_service.build_page(merge_request.diff_head_sha, merge_request.source_branch)
     return nil unless build_url
 
     parsed_url = URI.parse(build_url)
@@ -55,6 +55,10 @@ module MergeRequestsHelper
     end.sort.to_sentence
   end
 
+  def mr_closes_issues
+    @mr_closes_issues ||= @merge_request.closes_issues
+  end
+
   def mr_change_branches_path(merge_request)
     new_namespace_project_merge_request_path(
       @project.namespace, @project,
@@ -66,6 +70,19 @@ module MergeRequestsHelper
       },
       change_branches: true
     )
+  end
+
+  def mr_assign_issues_link
+    issues = MergeRequests::AssignIssuesService.new(@project,
+                                                    current_user,
+                                                    merge_request: @merge_request,
+                                                    closes_issues: mr_closes_issues
+                                                   ).assignable_issues
+    path = assign_related_issues_namespace_project_merge_request_path(@project.namespace, @project, @merge_request)
+    if issues.present?
+      pluralize_this_issue = issues.count > 1 ? "these issues" : "this issue"
+      link_to "Assign yourself to #{pluralize_this_issue}", path, method: :post
+    end
   end
 
   def source_branch_with_namespace(merge_request)
@@ -91,5 +108,23 @@ module MergeRequestsHelper
     else
       ["#{source_path}:#{source_branch}", "#{target_path}:#{target_branch}"]
     end
+  end
+
+  def merge_request_button_visibility(merge_request, closed)
+    return 'hidden' if merge_request.closed? == closed || (merge_request.merged? == closed && !merge_request.closed?) || merge_request.closed_without_fork?
+  end
+
+  def merge_request_version_path(project, merge_request, merge_request_diff, start_sha = nil)
+    diffs_namespace_project_merge_request_path(
+      project.namespace, project, merge_request,
+      diff_id: merge_request_diff.id, start_sha: start_sha)
+  end
+
+  def version_index(merge_request_diff)
+    @merge_request_diffs.size - @merge_request_diffs.index(merge_request_diff)
+  end
+
+  def different_base?(version1, version2)
+    version1 && version2 && version1.base_commit_sha != version2.base_commit_sha
   end
 end

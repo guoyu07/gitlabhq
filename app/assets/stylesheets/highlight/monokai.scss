@@ -21,6 +21,16 @@
 
   // Diff line
   .line_holder {
+    &.match .line_content {
+      @include dark-diff-match-line;
+    }
+
+    td.diff-line-num.hll:not(.empty-cell),
+    td.line_content.hll:not(.empty-cell) {
+      background-color: #49483e;
+      border-color: darken(#49483e, 15%);
+    }
+
     .diff-line-num.new, .line_content.new {
       @include diff_background(rgba(166, 226, 46, 0.1), rgba(166, 226, 46, 0.15), #808080);
     }
@@ -30,8 +40,7 @@
     }
 
     .line_content.match {
-      color: rgba(255, 255, 255, 0.3);
-      background: rgba(255, 255, 255, 0.1);
+      @include dark-diff-match-line;
     }
   }
 
@@ -105,8 +114,6 @@
   .vg { color: #f8f8f2 } /* Name.Variable.Global */
   .vi { color: #f8f8f2 } /* Name.Variable.Instance */
   .il { color: #ae81ff } /* Literal.Number.Integer.Long */
-
-  .gh { } /* Generic Heading & Diff Header */
   .gu { color: #75715e; } /* Generic.Subheading & Diff Unified/Comment? */
   .gd { color: #f92672; } /* Generic.Deleted & Diff Deleted */
   .gi { color: #a6e22e; } /* Generic.Inserted & Diff Inserted */

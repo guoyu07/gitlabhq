@@ -1,33 +1,16 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#  build_events          :boolean          default(FALSE), not null
-#
-
 class SlackService < Service
   prop_accessor :webhook, :username, :channel
-  boolean_accessor :notify_only_broken_builds
-  validates :webhook, presence: true, if: :activated?
+  boolean_accessor :notify_only_broken_builds, :notify_only_broken_pipelines
+  validates :webhook, presence: true, url: true, if: :activated?
 
   def initialize_properties
+    # Custom serialized properties initialization
+    self.supported_events.each { |event| self.class.prop_accessor(event_channel_name(event)) }
+
     if properties.nil?
       self.properties = {}
       self.notify_only_broken_builds = true
+      self.notify_only_broken_pipelines = true
     end
   end
 
@@ -50,17 +33,21 @@ class SlackService < Service
   end
 
   def fields
-    [
-      { type: 'text', name: 'webhook',
-        placeholder: 'https://hooks.slack.com/services/...' },
-      { type: 'text', name: 'username', placeholder: 'username' },
-      { type: 'text', name: 'channel', placeholder: '#channel' },
-      { type: 'checkbox', name: 'notify_only_broken_builds' },
-    ]
+    default_fields =
+      [
+        { type: 'text', name: 'webhook',   placeholder: 'https://hooks.slack.com/services/...' },
+        { type: 'text', name: 'username', placeholder: 'username' },
+        { type: 'text', name: 'channel', placeholder: "#general" },
+        { type: 'checkbox', name: 'notify_only_broken_builds' },
+        { type: 'checkbox', name: 'notify_only_broken_pipelines' },
+      ]
+
+    default_fields + build_event_channels
   end
 
   def supported_events
-    %w(push issue merge_request note tag_push build)
+    %w[push issue confidential_issue merge_request note tag_push
+       build pipeline wiki_page]
   end
 
   def execute(data)
@@ -78,31 +65,72 @@ class SlackService < Service
     # 'close' action. Ignore update events for now to prevent duplicate
     # messages from arriving.
 
-    message = \
-      case object_kind
-      when "push", "tag_push"
-        PushMessage.new(data)
-      when "issue"
-        IssueMessage.new(data) unless is_update?(data)
-      when "merge_request"
-        MergeMessage.new(data) unless is_update?(data)
-      when "note"
-        NoteMessage.new(data)
-      when "build"
-        BuildMessage.new(data) if should_build_be_notified?(data)
-      end
-
-    opt = {}
-    opt[:channel] = channel if channel
-    opt[:username] = username if username
+    message = get_message(object_kind, data)
 
     if message
+      opt = {}
+
+      event_channel = get_channel_field(object_kind) || channel
+
+      opt[:channel] = event_channel if event_channel
+      opt[:username] = username if username
+
       notifier = Slack::Notifier.new(webhook, opt)
       notifier.ping(message.pretext, attachments: message.attachments, fallback: message.fallback)
+
+      true
+    else
+      false
     end
   end
 
+  def event_channel_names
+    supported_events.map { |event| event_channel_name(event) }
+  end
+
+  def event_field(event)
+    fields.find { |field| field[:name] == event_channel_name(event) }
+  end
+
+  def global_fields
+    fields.reject { |field| field[:name].end_with?('channel') }
+  end
+
   private
+
+  def get_message(object_kind, data)
+    case object_kind
+    when "push", "tag_push"
+      PushMessage.new(data)
+    when "issue"
+      IssueMessage.new(data) unless is_update?(data)
+    when "merge_request"
+      MergeMessage.new(data) unless is_update?(data)
+    when "note"
+      NoteMessage.new(data)
+    when "build"
+      BuildMessage.new(data) if should_build_be_notified?(data)
+    when "pipeline"
+      PipelineMessage.new(data) if should_pipeline_be_notified?(data)
+    when "wiki_page"
+      WikiPageMessage.new(data)
+    end
+  end
+
+  def get_channel_field(event)
+    field_name = event_channel_name(event)
+    self.public_send(field_name)
+  end
+
+  def build_event_channels
+    supported_events.reduce([]) do |channels, event|
+      channels << { type: 'text', name: event_channel_name(event), placeholder: "#general" }
+    end
+  end
+
+  def event_channel_name(event)
+    "#{event}_channel"
+  end
 
   def project_name
     project.name_with_namespace.gsub(/\s/, '')
@@ -126,6 +154,17 @@ class SlackService < Service
       false
     end
   end
+
+  def should_pipeline_be_notified?(data)
+    case data[:object_attributes][:status]
+    when 'success'
+      !notify_only_broken_pipelines?
+    when 'failed'
+      true
+    else
+      false
+    end
+  end
 end
 
 require "slack_service/issue_message"
@@ -133,3 +172,5 @@ require "slack_service/push_message"
 require "slack_service/merge_message"
 require "slack_service/note_message"
 require "slack_service/build_message"
+require "slack_service/pipeline_message"
+require "slack_service/wiki_page_message"

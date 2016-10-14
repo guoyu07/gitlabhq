@@ -1,18 +1,3 @@
-# == Schema Information
-#
-# Table name: milestones
-#
-#  id          :integer          not null, primary key
-#  title       :string(255)      not null
-#  project_id  :integer          not null
-#  description :text
-#  due_date    :date
-#  created_at  :datetime
-#  updated_at  :datetime
-#  state       :string(255)
-#  iid         :integer
-#
-
 require 'spec_helper'
 
 describe Milestone, models: true do
@@ -34,13 +19,21 @@ describe Milestone, models: true do
   let(:issue) { create(:issue) }
   let(:user) { create(:user) }
 
+  describe "#title" do
+    let(:milestone) { create(:milestone, title: "<b>foo & bar -> 2.2</b>") }
+
+    it "sanitizes title" do
+      expect(milestone.title).to eq("foo & bar -> 2.2")
+    end
+  end
+
   describe "unique milestone title per project" do
-    it "shouldn't accept the same title in a project twice" do
+    it "does not accept the same title in a project twice" do
       new_milestone = Milestone.new(project: milestone.project, title: milestone.title)
       expect(new_milestone).not_to be_valid
     end
 
-    it "should accept the same title in another project" do
+    it "accepts the same title in another project" do
       project = build(:project)
       new_milestone = Milestone.new(project: project, title: milestone.title)
 
@@ -49,35 +42,35 @@ describe Milestone, models: true do
   end
 
   describe "#percent_complete" do
-    it "should not count open issues" do
+    it "does not count open issues" do
       milestone.issues << issue
       expect(milestone.percent_complete(user)).to eq(0)
     end
 
-    it "should count closed issues" do
+    it "counts closed issues" do
       issue.close
       milestone.issues << issue
       expect(milestone.percent_complete(user)).to eq(100)
     end
 
-    it "should recover from dividing by zero" do
+    it "recovers from dividing by zero" do
       expect(milestone.percent_complete(user)).to eq(0)
     end
   end
 
   describe "#expires_at" do
-    it "should be nil when due_date is unset" do
+    it "is nil when due_date is unset" do
       milestone.update_attributes(due_date: nil)
       expect(milestone.expires_at).to be_nil
     end
 
-    it "should not be nil when due_date is set" do
+    it "is not nil when due_date is set" do
       milestone.update_attributes(due_date: Date.tomorrow)
       expect(milestone.expires_at).to be_present
     end
   end
 
-  describe :expired? do
+  describe '#expired?' do
     context "expired" do
       before do
         allow(milestone).to receive(:due_date).and_return(Date.today.prev_year)
@@ -95,7 +88,7 @@ describe Milestone, models: true do
     end
   end
 
-  describe :percent_complete do
+  describe '#percent_complete' do
     before do
       allow(milestone).to receive_messages(
         closed_items_count: 3,
@@ -118,22 +111,22 @@ describe Milestone, models: true do
     it { expect(milestone.is_empty?(user)).to be_falsey }
   end
 
-  describe :can_be_closed? do
+  describe '#can_be_closed?' do
     it { expect(milestone.can_be_closed?).to be_truthy }
   end
 
-  describe :total_items_count do
+  describe '#total_items_count' do
     before do
       create :closed_issue, milestone: milestone
       create :merge_request, milestone: milestone
     end
 
-    it 'Should return total count of issues and merge requests assigned to milestone' do
+    it 'returns total count of issues and merge requests assigned to milestone' do
       expect(milestone.total_items_count(user)).to eq 2
     end
   end
 
-  describe :can_be_closed? do
+  describe '#can_be_closed?' do
     before do
       milestone = create :milestone
       create :closed_issue, milestone: milestone
@@ -141,11 +134,11 @@ describe Milestone, models: true do
       create :issue
     end
 
-    it 'should be true if milestone active and all nested issues closed' do
+    it 'returns true if milestone active and all nested issues closed' do
       expect(milestone.can_be_closed?).to be_truthy
     end
 
-    it 'should be false if milestone active and not all nested issues closed' do
+    it 'returns false if milestone active and not all nested issues closed' do
       issue.milestone = milestone
       issue.save
 
@@ -209,6 +202,39 @@ describe Milestone, models: true do
     it 'returns milestones with a matching description regardless of the casing' do
       expect(described_class.search(milestone.description.upcase)).
         to eq([milestone])
+    end
+  end
+
+  describe '.upcoming_ids_by_projects' do
+    let(:project_1) { create(:empty_project) }
+    let(:project_2) { create(:empty_project) }
+    let(:project_3) { create(:empty_project) }
+    let(:projects) { [project_1, project_2, project_3] }
+
+    let!(:past_milestone_project_1) { create(:milestone, project: project_1, due_date: Time.now - 1.day) }
+    let!(:current_milestone_project_1) { create(:milestone, project: project_1, due_date: Time.now + 1.day) }
+    let!(:future_milestone_project_1) { create(:milestone, project: project_1, due_date: Time.now + 2.days) }
+
+    let!(:past_milestone_project_2) { create(:milestone, project: project_2, due_date: Time.now - 1.day) }
+    let!(:closed_milestone_project_2) { create(:milestone, :closed, project: project_2, due_date: Time.now + 1.day) }
+    let!(:current_milestone_project_2) { create(:milestone, project: project_2, due_date: Time.now + 2.days) }
+
+    let!(:past_milestone_project_3) { create(:milestone, project: project_3, due_date: Time.now - 1.day) }
+
+    # The call to `#try` is because this returns a relation with a Postgres DB,
+    # and an array of IDs with a MySQL DB.
+    let(:milestone_ids) { Milestone.upcoming_ids_by_projects(projects).map { |id| id.try(:id) || id } }
+
+    it 'returns the next upcoming open milestone ID for each project' do
+      expect(milestone_ids).to contain_exactly(current_milestone_project_1.id, current_milestone_project_2.id)
+    end
+
+    context 'when the projects have no open upcoming milestones' do
+      let(:projects) { [project_3] }
+
+      it 'returns no results' do
+        expect(milestone_ids).to be_empty
+      end
     end
   end
 end

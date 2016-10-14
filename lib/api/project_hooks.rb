@@ -28,7 +28,6 @@ module API
         present @hook, with: Entities::ProjectHook
       end
 
-
       # Add hook to project
       #
       # Parameters:
@@ -46,6 +45,8 @@ module API
           :tag_push_events,
           :note_events,
           :build_events,
+          :pipeline_events,
+          :wiki_page_events,
           :enable_ssl_verification
         ]
         @hook = user_project.hooks.new(attrs)
@@ -79,6 +80,8 @@ module API
           :tag_push_events,
           :note_events,
           :build_events,
+          :pipeline_events,
+          :wiki_page_events,
           :enable_ssl_verification
         ]
 
@@ -103,10 +106,10 @@ module API
         required_attributes! [:hook_id]
 
         begin
-          @hook = ProjectHook.find(params[:hook_id])
-          @hook.destroy
+          @hook = user_project.hooks.destroy(params[:hook_id])
         rescue
           # ProjectHook can raise Error if hook_id not found
+          not_found!("Error deleting hook #{params[:hook_id]}")
         end
       end
     end

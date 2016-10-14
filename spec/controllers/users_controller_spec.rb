@@ -33,7 +33,30 @@ describe UsersController do
         it 'renders the show template' do
           get :show, username: user.username
 
-          expect(response).to be_success
+          expect(response).to have_http_status(200)
+          expect(response).to render_template('show')
+        end
+      end
+    end
+
+    context 'when public visibility level is restricted' do
+      before do
+        stub_application_setting(restricted_visibility_levels: [Gitlab::VisibilityLevel::PUBLIC])
+      end
+
+      context 'when logged out' do
+        it 'renders 404' do
+          get :show, username: user.username
+          expect(response).to have_http_status(404)
+        end
+      end
+
+      context 'when logged in' do
+        before { sign_in(user) }
+
+        it 'renders show' do
+          get :show, username: user.username
+          expect(response).to have_http_status(200)
           expect(response).to render_template('show')
         end
       end
@@ -41,7 +64,6 @@ describe UsersController do
   end
 
   describe 'GET #calendar' do
-
     it 'renders calendar' do
       sign_in(user)
 
@@ -51,8 +73,8 @@ describe UsersController do
     end
 
     context 'forked project' do
-      let!(:project) { create(:project) }
-      let!(:forked_project) { Projects::ForkService.new(project, user).execute }
+      let(:project) { create(:project) }
+      let(:forked_project) { Projects::ForkService.new(project, user).execute }
 
       before do
         sign_in(user)
@@ -87,6 +109,28 @@ describe UsersController do
     it 'renders calendar_activities' do
       get :calendar_activities, username: user.username
       expect(response).to render_template('calendar_activities')
+    end
+  end
+
+  describe 'GET #snippets' do
+    before do
+      sign_in(user)
+    end
+
+    context 'format html' do
+      it 'renders snippets page' do
+        get :snippets, username: user.username
+        expect(response).to have_http_status(200)
+        expect(response).to render_template('show')
+      end
+    end
+
+    context 'format json' do
+      it 'response with snippets json data' do
+        get :snippets, username: user.username, format: :json
+        expect(response).to have_http_status(200)
+        expect(JSON.parse(response.body)).to have_key('html')
+      end
     end
   end
 end

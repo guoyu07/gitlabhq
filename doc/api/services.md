@@ -8,7 +8,7 @@ Asana - Teamwork without email
 
 Set Asana service for a project.
 
-> This service adds commit messages as comments to Asana tasks. Once enabled, commit messages are checked for Asana task URLs (for example, `https://app.asana.com/0/123456/987654`) or task IDs starting with # (for example, `#987654`). Every task ID found will get the commit comment added to it.  You can also close a task with a message containing: `fix #123456`.  You can find your Api Keys here: http://developer.asana.com/documentation/#api_keys
+> This service adds commit messages as comments to Asana tasks. Once enabled, commit messages are checked for Asana task URLs (for example, `https://app.asana.com/0/123456/987654`) or task IDs starting with # (for example, `#987654`). Every task ID found will get the commit comment added to it.  You can also close a task with a message containing: `fix #123456`.  You can find your Api Keys here: https://asana.com/developers/documentation/getting-started/auth#api-key
 
 ```
 PUT /projects/:id/services/asana
@@ -16,8 +16,8 @@ PUT /projects/:id/services/asana
 
 Parameters:
 
-- `api_key` (**required**) - User API token. User must have access to task,all comments will be attributed to this user.
-- `restrict_to_branch` (optional) - Comma-separated list of branches which will beautomatically inspected. Leave blank to include all branches.
+- `api_key` (**required**) - User API token. User must have access to task, all comments will be attributed to this user.
+- `restrict_to_branch` (optional) - Comma-separated list of branches which will be automatically inspected. Leave blank to include all branches.
 
 ### Delete Asana service
 
@@ -355,7 +355,7 @@ PUT /projects/:id/services/gemnasium
 
 Parameters:
 
-- `api_key` (**required**) - Your personal API KEY on gemnasium.com 
+- `api_key` (**required**) - Your personal API KEY on gemnasium.com
 - `token` (**required**) - The project's slug on gemnasium.com
 
 ### Delete Gemnasium service
@@ -372,40 +372,6 @@ Get Gemnasium service settings for a project.
 
 ```
 GET /projects/:id/services/gemnasium
-```
-
-## GitLab CI
-
-Continuous integration server from GitLab
-
-### Create/Edit GitLab CI service
-
-Set GitLab CI service for a project.
-
-```
-PUT /projects/:id/services/gitlab-ci
-```
-
-Parameters:
-
-- `token` (**required**) - GitLab CI project specific token
-- `project_url` (**required**) - http://ci.gitlabhq.com/projects/3
-- `enable_ssl_verification` (optional) - Enable SSL verification
-
-### Delete GitLab CI service
-
-Delete GitLab CI service for a project.
-
-```
-DELETE /projects/:id/services/gitlab-ci
-```
-
-### Get GitLab CI service settings
-
-Get GitLab CI service settings for a project.
-
-```
-GET /projects/:id/services/gitlab-ci
 ```
 
 ## HipChat
@@ -491,7 +457,7 @@ Jira issue tracker
 
 Set JIRA service for a project.
 
-> Setting `project_url`, `issues_url` and `new_issue_url` will allow a user to easily navigate to the Jira issue tracker. See the [integration doc](http://doc.gitlab.com/ce/integration/external-issue-tracker.html) for details.  Support for referencing commits and automatic closing of Jira issues directly from GitLab is [available in GitLab EE.](http://doc.gitlab.com/ee/integration/jira.html)
+> Setting `project_url`, `issues_url` and `new_issue_url` will allow a user to easily navigate to the Jira issue tracker. See the [integration doc](http://docs.gitlab.com/ce/integration/external-issue-tracker.html) for details.  Support for referencing commits and automatic closing of Jira issues directly from GitLab is [available in GitLab EE.](http://docs.gitlab.com/ee/integration/jira.html)
 
 ```
 PUT /projects/:id/services/jira
@@ -503,6 +469,8 @@ Parameters:
 - `project_url` (**required**) - Project url
 - `issues_url` (**required**) - Issue url
 - `description` (optional) - Jira issue tracker
+- `username` (optional) - Jira username
+- `password` (optional) - Jira password
 
 ### Delete JIRA service
 
@@ -535,6 +503,7 @@ PUT /projects/:id/services/pivotaltracker
 Parameters:
 
 - `token` (**required**)
+- `restrict_to_branch` (optional) - Comma-separated list of branches which will be automatically inspected. Leave blank to include all branches.
 
 ### Delete PivotalTracker service
 
@@ -693,4 +662,3 @@ Get JetBrains TeamCity CI service settings for a project.
 ```
 GET /projects/:id/services/teamcity
 ```
-

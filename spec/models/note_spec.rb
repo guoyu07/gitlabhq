@@ -1,27 +1,8 @@
-# == Schema Information
-#
-# Table name: notes
-#
-#  id            :integer          not null, primary key
-#  note          :text
-#  noteable_type :string(255)
-#  author_id     :integer
-#  created_at    :datetime
-#  updated_at    :datetime
-#  project_id    :integer
-#  attachment    :string(255)
-#  line_code     :string(255)
-#  commit_id     :string(255)
-#  noteable_id   :integer
-#  system        :boolean          default(FALSE), not null
-#  st_diff       :text
-#  updated_by_id :integer
-#  is_award      :boolean          default(FALSE), not null
-#
-
 require 'spec_helper'
 
 describe Note, models: true do
+  include RepoHelpers
+
   describe 'associations' do
     it { is_expected.to belong_to(:project) }
     it { is_expected.to belong_to(:noteable).touch(true) }
@@ -30,46 +11,70 @@ describe Note, models: true do
     it { is_expected.to have_many(:todos).dependent(:destroy) }
   end
 
+  describe 'modules' do
+    subject { described_class }
+
+    it { is_expected.to include_module(Participable) }
+    it { is_expected.to include_module(Mentionable) }
+    it { is_expected.to include_module(Awardable) }
+
+    it { is_expected.to include_module(Gitlab::CurrentSettings) }
+  end
+
   describe 'validation' do
     it { is_expected.to validate_presence_of(:note) }
     it { is_expected.to validate_presence_of(:project) }
+
+    context 'when note is on commit' do
+      before { allow(subject).to receive(:for_commit?).and_return(true) }
+
+      it { is_expected.to validate_presence_of(:commit_id) }
+      it { is_expected.not_to validate_presence_of(:noteable_id) }
+    end
+
+    context 'when note is not on commit' do
+      before { allow(subject).to receive(:for_commit?).and_return(false) }
+
+      it { is_expected.not_to validate_presence_of(:commit_id) }
+      it { is_expected.to validate_presence_of(:noteable_id) }
+    end
+
+    context 'when noteable and note project differ' do
+      subject do
+        build(:note, noteable: build_stubbed(:issue),
+                     project: build_stubbed(:project))
+      end
+
+      it { is_expected.to be_invalid }
+    end
+
+    context 'when noteable and note project are the same' do
+      subject { create(:note) }
+      it { is_expected.to be_valid }
+    end
   end
 
   describe "Commit notes" do
     let!(:note) { create(:note_on_commit, note: "+1 from me") }
     let!(:commit) { note.noteable }
 
-    it "should be accessible through #noteable" do
+    it "is accessible through #noteable" do
       expect(note.commit_id).to eq(commit.id)
       expect(note.noteable).to be_a(Commit)
       expect(note.noteable).to eq(commit)
     end
 
-    it "should save a valid note" do
+    it "saves a valid note" do
       expect(note.commit_id).to eq(commit.id)
       note.noteable == commit
     end
 
-    it "should be recognized by #for_commit?" do
+    it "is recognized by #for_commit?" do
       expect(note).to be_for_commit
     end
-  end
 
-  describe "Commit diff line notes" do
-    let!(:note) { create(:note_on_commit_diff, note: "+1 from me") }
-    let!(:commit) { note.noteable }
-
-    it "should save a valid note" do
-      expect(note.commit_id).to eq(commit.id)
-      expect(note.noteable.id).to eq(commit.id)
-    end
-
-    it "should be recognized by #for_diff_line?" do
-      expect(note).to be_for_diff_line
-    end
-
-    it "should be recognized by #for_commit_diff_line?" do
-      expect(note).to be_for_commit_diff_line
+    it "keeps the commit around" do
+      expect(note.project.repository.kept_around?(commit.id)).to be_truthy
     end
   end
 
@@ -80,8 +85,6 @@ describe Note, models: true do
       @u1 = create(:user)
       @u2 = create(:user)
       @u3 = create(:user)
-      @abilities = Six.new
-      @abilities << Ability
     end
 
     describe 'read' do
@@ -90,9 +93,9 @@ describe Note, models: true do
         @p2.project_members.create(user: @u3, access_level: ProjectMember::GUEST)
       end
 
-      it { expect(@abilities.allowed?(@u1, :read_note, @p1)).to be_falsey }
-      it { expect(@abilities.allowed?(@u2, :read_note, @p1)).to be_truthy }
-      it { expect(@abilities.allowed?(@u3, :read_note, @p1)).to be_falsey }
+      it { expect(Ability.allowed?(@u1, :read_note, @p1)).to be_falsey }
+      it { expect(Ability.allowed?(@u2, :read_note, @p1)).to be_truthy }
+      it { expect(Ability.allowed?(@u3, :read_note, @p1)).to be_falsey }
     end
 
     describe 'write' do
@@ -101,9 +104,9 @@ describe Note, models: true do
         @p2.project_members.create(user: @u3, access_level: ProjectMember::DEVELOPER)
       end
 
-      it { expect(@abilities.allowed?(@u1, :create_note, @p1)).to be_falsey }
-      it { expect(@abilities.allowed?(@u2, :create_note, @p1)).to be_truthy }
-      it { expect(@abilities.allowed?(@u3, :create_note, @p1)).to be_falsey }
+      it { expect(Ability.allowed?(@u1, :create_note, @p1)).to be_falsey }
+      it { expect(Ability.allowed?(@u2, :create_note, @p1)).to be_truthy }
+      it { expect(Ability.allowed?(@u3, :create_note, @p1)).to be_falsey }
     end
 
     describe 'admin' do
@@ -113,9 +116,9 @@ describe Note, models: true do
         @p2.project_members.create(user: @u3, access_level: ProjectMember::MASTER)
       end
 
-      it { expect(@abilities.allowed?(@u1, :admin_note, @p1)).to be_falsey }
-      it { expect(@abilities.allowed?(@u2, :admin_note, @p1)).to be_truthy }
-      it { expect(@abilities.allowed?(@u3, :admin_note, @p1)).to be_falsey }
+      it { expect(Ability.allowed?(@u1, :admin_note, @p1)).to be_falsey }
+      it { expect(Ability.allowed?(@u2, :admin_note, @p1)).to be_truthy }
+      it { expect(Ability.allowed?(@u3, :admin_note, @p1)).to be_falsey }
     end
   end
 
@@ -128,20 +131,39 @@ describe Note, models: true do
   end
 
   describe "#all_references" do
-    let!(:note1) { create(:note) }
-    let!(:note2) { create(:note) }
+    let!(:note1) { create(:note_on_issue) }
+    let!(:note2) { create(:note_on_issue) }
 
     it "reads the rendered note body from the cache" do
-      expect(Banzai::Renderer).to receive(:render).with(note1.note, pipeline: :note, cache_key: [note1, "note"], project: note1.project)
-      expect(Banzai::Renderer).to receive(:render).with(note2.note, pipeline: :note, cache_key: [note2, "note"], project: note2.project)
+      expect(Banzai::Renderer).to receive(:cache_collection_render).
+        with([{
+          text: note1.note,
+          context: {
+            pipeline: :note,
+            cache_key: [note1, "note"],
+            project: note1.project,
+            author: note1.author
+          }
+        }]).and_call_original
 
-      note1.all_references
-      note2.all_references
+      expect(Banzai::Renderer).to receive(:cache_collection_render).
+        with([{
+          text: note2.note,
+          context: {
+            pipeline: :note,
+            cache_key: [note2, "note"],
+            project: note2.project,
+            author: note2.author
+          }
+        }]).and_call_original
+
+      note1.all_references.users
+      note2.all_references.users
     end
   end
 
   describe '.search' do
-    let(:note) { create(:note, note: 'WoW') }
+    let(:note) { create(:note_on_issue, note: 'WoW') }
 
     it 'returns notes with matching content' do
       expect(described_class.search(note.note)).to eq([note])
@@ -150,81 +172,30 @@ describe Note, models: true do
     it 'returns notes with matching content regardless of the casing' do
       expect(described_class.search('WOW')).to eq([note])
     end
-  end
 
-  describe '.grouped_awards' do
-    before do
-      create :note, note: "smile", is_award: true
-      create :note, note: "smile", is_award: true
-    end
+    context "confidential issues" do
+      let(:user) { create(:user) }
+      let(:project) { create(:project) }
+      let(:confidential_issue) { create(:issue, :confidential, project: project, author: user) }
+      let(:confidential_note) { create(:note, note: "Random", noteable: confidential_issue, project: confidential_issue.project) }
 
-    it "returns grouped hash of notes" do
-      expect(Note.grouped_awards.keys.size).to eq(3)
-      expect(Note.grouped_awards["smile"]).to match_array(Note.all)
-    end
-
-    it "returns thumbsup and thumbsdown always" do
-      expect(Note.grouped_awards["thumbsup"]).to match_array(Note.none)
-      expect(Note.grouped_awards["thumbsdown"]).to match_array(Note.none)
-    end
-  end
-
-  describe '#active?' do
-    it 'is always true when the note has no associated diff' do
-      note = build(:note)
-
-      expect(note).to receive(:diff).and_return(nil)
-
-      expect(note).to be_active
-    end
-
-    it 'is never true when the note has no noteable associated' do
-      note = build(:note)
-
-      expect(note).to receive(:diff).and_return(double)
-      expect(note).to receive(:noteable).and_return(nil)
-
-      expect(note).not_to be_active
-    end
-
-    it 'returns the memoized value if defined' do
-      note = build(:note)
-
-      expect(note).to receive(:diff).and_return(double)
-      expect(note).to receive(:noteable).and_return(double)
-
-      note.instance_variable_set(:@active, 'foo')
-      expect(note).not_to receive(:find_noteable_diff)
-
-      expect(note.active?).to eq 'foo'
-    end
-
-    context 'for a merge request noteable' do
-      it 'is false when noteable has no matching diff' do
-        merge = build_stubbed(:merge_request, :simple)
-        note = build(:note, noteable: merge)
-
-        allow(note).to receive(:diff).and_return(double)
-        expect(note).to receive(:find_noteable_diff).and_return(nil)
-
-        expect(note).not_to be_active
+      it "returns notes with matching content if user can see the issue" do
+        expect(described_class.search(confidential_note.note, as_user: user)).to eq([confidential_note])
       end
 
-      it 'is true when noteable has a matching diff' do
-        merge = create(:merge_request, :simple)
+      it "does not return notes with matching content if user can not see the issue" do
+        user = create(:user)
+        expect(described_class.search(confidential_note.note, as_user: user)).to be_empty
+      end
 
-        # Generate a real line_code value so we know it will match. We use a
-        # random line from a random diff just for funsies.
-        diff = merge.diffs.to_a.sample
-        line = Gitlab::Diff::Parser.new.parse(diff.diff.each_line).to_a.sample
-        code = Gitlab::Diff::LineCode.generate(diff.new_path, line.new_pos, line.old_pos)
+      it "does not return notes with matching content for project members with guest role" do
+        user = create(:user)
+        project.team << [user, :guest]
+        expect(described_class.search(confidential_note.note, as_user: user)).to be_empty
+      end
 
-        # We're persisting in order to trigger the set_diff callback
-        note = create(:note, noteable: merge, line_code: code)
-
-        # Make sure we don't get a false positive from a guard clause
-        expect(note).to receive(:find_noteable_diff).and_call_original
-        expect(note).to be_active
+      it "does not return notes with matching content for unauthenticated users" do
+        expect(described_class.search(confidential_note.note)).to be_empty
       end
     end
   end
@@ -237,11 +208,6 @@ describe Note, models: true do
 
     it "returns false" do
       note = build(:note, system: true)
-      expect(note.editable?).to be_falsy
-    end
-
-    it "returns false" do
-      note = build(:note, is_award: true, note: "smiley")
       expect(note.editable?).to be_falsy
     end
   end
@@ -257,7 +223,7 @@ describe Note, models: true do
     let(:note) do
       create :note,
         noteable: ext_issue, project: ext_proj,
-        note: "mentioned in issue #{private_issue.to_reference(ext_proj)}",
+        note: "Mentioned in issue #{private_issue.to_reference(ext_proj)}",
         system: true
     end
 
@@ -268,22 +234,19 @@ describe Note, models: true do
     it "returns false" do
       expect(note.cross_reference_not_visible_for?(private_user)).to be_falsy
     end
-  end
 
-  describe "set_award!" do
-    let(:merge_request) { create :merge_request }
+    it "returns false if user visible reference count set" do
+      note.user_visible_reference_count = 1
 
-    it "converts aliases to actual name" do
-      note = create(:note, note: ":+1:", noteable: merge_request)
-      expect(note.reload.note).to eq("thumbsup")
+      expect(note).not_to receive(:reference_mentionables)
+      expect(note.cross_reference_not_visible_for?(ext_issue.author)).to be_falsy
     end
 
-    it "is not an award emoji when comment is on a diff" do
-      note = create(:note, note: ":blowfish:", noteable: merge_request, line_code: "11d5d2e667e9da4f7f610f81d86c974b146b13bd_0_2")
-      note = note.reload
+    it "returns true if ref count is 0" do
+      note.user_visible_reference_count = 0
 
-      expect(note.note).to eq(":blowfish:")
-      expect(note.is_award?).to be_falsy
+      expect(note).not_to receive(:reference_mentionables)
+      expect(note.cross_reference_not_visible_for?(ext_issue.author)).to be_truthy
     end
   end
 
@@ -292,6 +255,93 @@ describe Note, models: true do
       note = build(:note, line_code: ' ')
 
       expect { note.valid? }.to change(note, :line_code).to(nil)
+    end
+  end
+
+  describe '#participants' do
+    it 'includes the note author' do
+      project = create(:project, :public)
+      issue = create(:issue, project: project)
+      note = create(:note_on_issue, noteable: issue, project: project)
+
+      expect(note.participants).to include(note.author)
+    end
+  end
+
+  describe ".grouped_diff_discussions" do
+    let!(:merge_request) { create(:merge_request) }
+    let(:project) { merge_request.project }
+    let!(:active_diff_note1) { create(:diff_note_on_merge_request, project: project, noteable: merge_request) }
+    let!(:active_diff_note2) { create(:diff_note_on_merge_request, project: project, noteable: merge_request) }
+    let!(:active_diff_note3) { create(:diff_note_on_merge_request, project: project, noteable: merge_request, position: active_position2) }
+    let!(:outdated_diff_note1) { create(:diff_note_on_merge_request, project: project, noteable: merge_request, position: outdated_position) }
+    let!(:outdated_diff_note2) { create(:diff_note_on_merge_request, project: project, noteable: merge_request, position: outdated_position) }
+
+    let(:active_position2) do
+      Gitlab::Diff::Position.new(
+        old_path: "files/ruby/popen.rb",
+        new_path: "files/ruby/popen.rb",
+        old_line: 16,
+        new_line: 22,
+        diff_refs: merge_request.diff_refs
+      )
+    end
+
+    let(:outdated_position) do
+      Gitlab::Diff::Position.new(
+        old_path: "files/ruby/popen.rb",
+        new_path: "files/ruby/popen.rb",
+        old_line: nil,
+        new_line: 9,
+        diff_refs: project.commit("874797c3a73b60d2187ed6e2fcabd289ff75171e").diff_refs
+      )
+    end
+
+    subject { merge_request.notes.grouped_diff_discussions }
+
+    it "includes active discussions" do
+      discussions = subject.values
+
+      expect(discussions.count).to eq(2)
+      expect(discussions.map(&:id)).to eq([active_diff_note1.discussion_id, active_diff_note3.discussion_id])
+      expect(discussions.all?(&:active?)).to be true
+
+      expect(discussions.first.notes).to eq([active_diff_note1, active_diff_note2])
+      expect(discussions.last.notes).to eq([active_diff_note3])
+    end
+
+    it "doesn't include outdated discussions" do
+      expect(subject.values.map(&:id)).not_to include(outdated_diff_note1.discussion_id)
+    end
+
+    it "groups the discussions by line code" do
+      expect(subject[active_diff_note1.line_code].id).to eq(active_diff_note1.discussion_id)
+      expect(subject[active_diff_note3.line_code].id).to eq(active_diff_note3.discussion_id)
+    end
+  end
+
+  describe "#discussion_id" do
+    let(:note) { create(:note) }
+
+    context "when it is newly created" do
+      it "has a discussion id" do
+        expect(note.discussion_id).not_to be_nil
+        expect(note.discussion_id).to match(/\A\h{40}\z/)
+      end
+    end
+
+    context "when it didn't store a discussion id before" do
+      before do
+        note.update_column(:discussion_id, nil)
+      end
+
+      it "has a discussion id" do
+        # The discussion_id is set in `after_initialize`, so `reload` won't work
+        reloaded_note = Note.find(note.id)
+
+        expect(reloaded_note.discussion_id).not_to be_nil
+        expect(reloaded_note.discussion_id).to match(/\A\h{40}\z/)
+      end
     end
   end
 end

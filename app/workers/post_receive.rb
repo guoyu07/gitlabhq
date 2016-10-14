@@ -4,12 +4,16 @@ class PostReceive
   sidekiq_options queue: :post_receive
 
   def perform(repo_path, identifier, changes)
-    if repo_path.start_with?(Gitlab.config.gitlab_shell.repos_path.to_s)
-      repo_path.gsub!(Gitlab.config.gitlab_shell.repos_path.to_s, "")
+    if path = Gitlab.config.repositories.storages.find { |p| repo_path.start_with?(p[1].to_s) }
+      repo_path.gsub!(path[1].to_s, "")
     else
-      log("Check gitlab.yml config for correct gitlab_shell.repos_path variable. \"#{Gitlab.config.gitlab_shell.repos_path}\" does not match \"#{repo_path}\"")
+      log("Check gitlab.yml config for correct repositories.storages values. No repository storage path matches \"#{repo_path}\"")
     end
 
+    changes = Base64.decode64(changes) unless changes.include?(' ')
+    # Use Sidekiq.logger so arguments can be correlated with execution
+    # time and thread ID's.
+    Sidekiq.logger.info "changes: #{changes.inspect}" if ENV['SIDEKIQ_LOG_ARGUMENTS']
     post_received = Gitlab::GitPostReceive.new(repo_path, identifier, changes)
 
     if post_received.project.nil?
@@ -39,15 +43,15 @@ class PostReceive
       end
 
       if Gitlab::Git.tag_ref?(ref)
-        GitTagPushService.new.execute(post_received.project, @user, oldrev, newrev, ref)
-      else
+        GitTagPushService.new(post_received.project, @user, oldrev: oldrev, newrev: newrev, ref: ref).execute
+      elsif Gitlab::Git.branch_ref?(ref)
         GitPushService.new(post_received.project, @user, oldrev: oldrev, newrev: newrev, ref: ref).execute
       end
     end
   end
 
   private
-  
+
   def log(message)
     Gitlab::GitLogger.error("POST-RECEIVE: #{message}")
   end

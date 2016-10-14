@@ -6,7 +6,7 @@
   background: $background-color;
   color: $gl-gray;
   border: 1px solid $border-color;
-  @include border-radius(2px);
+  border-radius: 2px;
 
   form {
     margin-bottom: 0;
@@ -41,7 +41,7 @@
       margin: 0;
       margin-left: 20px;
       padding: 5px;
-      padding-top: 12px;
+      padding-top: 8px;
       line-height: 20px;
 
       &.right {
@@ -60,12 +60,28 @@
   .ci_widget {
     border-bottom: 1px solid #eef0f2;
 
-    i {
+    svg {
       margin-right: 4px;
+      position: relative;
+      top: 1px;
+      overflow: visible;
     }
 
     &.ci-success {
       color: $gl-success;
+
+      a.environment,
+      a.pipeline {
+        color: inherit;
+      }
+    }
+
+    &.ci-success_with_warnings {
+      color: $gl-success;
+
+      i {
+        color: $gl-warning;
+      }
     }
 
     &.ci-skipped {
@@ -73,15 +89,21 @@
       color: #888;
     }
 
-    &.ci-pending,
-    &.ci-running {
+    &.ci-pending {
       color: $gl-warning;
     }
 
+    &.ci-running {
+      color: $blue-normal;
+    }
+
     &.ci-failed,
-    &.ci-canceled,
     &.ci-error {
       color: $gl-danger;
+    }
+
+    &.ci-canceled {
+      color: $gl-gray;
     }
 
     a.monospace {
@@ -104,11 +126,47 @@
       font-weight: 600;
       font-size: 17px;
       margin: 5px 0;
-      color: #313236;
+      color: $gl-gray-dark;
+
+      &.has-conflicts .fa-exclamation-triangle {
+        color: $gl-warning;
+      }
     }
 
     p:last-child {
       margin-bottom: 0;
+    }
+
+    .btn-grouped {
+      margin-left: 0;
+      margin-right: 7px;
+    }
+
+    @media (max-width: $screen-xs-max) {
+      h4 {
+        font-size: 15px;
+      }
+
+      p {
+        font-size: 13px;
+      }
+
+      .btn,
+      .btn-group,
+      .accept-action {
+        margin-bottom: 4px;
+      }
+
+      .accept-action {
+        width: 100%;
+        text-align: center;
+      }
+
+      .accept-control {
+        width: 100%;
+        text-align: center;
+        margin: 0;
+      }
     }
   }
 
@@ -123,9 +181,12 @@
 
 .mr_source_commit,
 .mr_target_commit {
+  margin-bottom: 0;
+
   .commit {
     margin: 0;
-    padding: 2px 0;
+    padding-top: 2px;
+    padding-bottom: 2px;
     list-style: none;
     &:hover {
       background: none;
@@ -134,12 +195,25 @@
 }
 
 .label-branch {
-  color: #313236;
+  color: $gl-gray-dark;
   font-family: $monospace_font;
   font-weight: bold;
   overflow: hidden;
   font-size: 90%;
   margin: 0 3px;
+  word-break: break-all;
+}
+
+.commits-empty {
+  text-align: center;
+
+  h4 {
+    padding-top: 20px;
+    padding-bottom: 10px;
+  }
+  svg {
+    width: 230px;
+  }
 }
 
 .mr-list {
@@ -149,15 +223,26 @@
 
     .merge-request-title {
       margin-bottom: 2px;
+
+      .ci-status-link {
+
+        svg {
+          height: 16px;
+          width: 16px;
+          position: relative;
+          top: 3px;
+        }
+
+        &:hover,
+        &:focus {
+          text-decoration: none;
+        }
+      }
     }
   }
 
   .merge-request-labels {
     display: inline-block;
-  }
-
-  .merge-request-no-comments {
-    opacity: 0.5;
   }
 }
 
@@ -172,10 +257,6 @@
 .diff-file .close-mr-link,
 .diff-file .reopen-mr-link {
   display: none;
-}
-
-.merge-request-form .select2-container {
-  width: 250px !important;
 }
 
 #modal_merge_info .modal-dialog {
@@ -195,38 +276,160 @@
   line-height: 31px;
 }
 
-.disabled-comment-area {
-  padding: 16px 0;
+.builds {
+  .table-holder {
+    overflow-x: auto;
+  }
+}
 
-  .disabled-profile {
-    width: 40px;
-    height: 40px;
-    background: $border-gray-dark;
-    border-radius: 20px;
-    display: inline-block;
-    margin-right: 10px;
+.panel-new-merge-request {
+  .panel-heading {
+    padding: 5px 10px;
+    font-weight: 600;
+    line-height: 25px;
   }
 
-  .disabled-comment {
-    background: $gray-light;
-    display: inline-block;
-    vertical-align: top;
-    height: 200px;
-    border-radius: 4px;
-    border: 1px solid $border-gray-normal;
-    padding-top: 90px;
-    text-align: center;
-    right: 20px;
-    position: absolute;
-    left: 70px;
-    margin-bottom: 20px;
+  .panel-body {
+    padding: 10px 5px;
+  }
 
-    span {
-      color: #b2b2b2;
+  .panel-footer {
+    padding: 5px 10px;
 
-      a {
-        color: $md-link-color;
+    .btn {
+      min-width: auto;
+    }
+  }
+
+  .commit {
+    .commit-row-title {
+      margin-bottom: 4px;
+    }
+
+    .item-title {
+      @media (min-width: $screen-sm-min) {
+        width: 45%;
       }
     }
+
+    .avatar {
+      left: 0;
+      top: 2px;
+    }
+
+    .commit-row-info {
+      line-height: 20px;
+    }
+  }
+
+  .btn-clipboard {
+    margin-right: 5px;
+    padding: 0;
+    background: transparent;
+  }
+
+  .ci-status-link {
+    margin-right: 5px;
+  }
+}
+
+.merge-request-select {
+  padding-left: 5px;
+  padding-right: 5px;
+  margin-bottom: 10px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+  @media (min-width: $screen-xs-min) {
+    float: left;
+    width: 50%;
+    margin-bottom: 0;
+  }
+
+  .dropdown-menu-toggle {
+    width: 100%;
+  }
+
+  .dropdown-menu {
+    left: 5px;
+    right: 5px;
+    width: auto;
+  }
+}
+
+.issuable-form-select-holder {
+  display: inline-block;
+  width: 250px;
+
+  .dropdown-menu-toggle {
+    width: 100%;
+  }
+}
+
+.table-holder {
+  .builds {
+
+    th {
+      background-color: $white-light;
+      color: $gl-placeholder-color;
+    }
+  }
+}
+
+.merged-buttons {
+  .btn {
+    float: left;
+
+    &:not(:last-child) {
+      margin-right: 10px;
+    }
+  }
+}
+
+.mr-version-controls {
+  background: $background-color;
+  border-bottom: 1px solid $border-color;
+  color: $gl-text-color;
+
+  .mr-version-menus-container {
+    display: -webkit-flex;
+    display: flex;
+    -webkit-align-items: center;
+    align-items: center;
+    padding: 16px;
+  }
+
+  .content-block {
+    border-top: 1px solid $border-color;
+    padding: $gl-padding-top $gl-padding;
+  }
+
+  .comments-disabled-notif {
+    .btn {
+      margin-left: 5px;
+    }
+  }
+
+  .mr-version-dropdown,
+  .mr-version-compare-dropdown {
+    margin: 0 7px;
+  }
+
+  .dropdown-title {
+    color: $gl-text-color;
+  }
+
+  .fa-info-circle {
+    color: $orange-normal;
+    padding-right: 5px;
+  }
+}
+
+.merge-request-details {
+
+  .title {
+    margin-bottom: 20px;
   }
 }

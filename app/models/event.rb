@@ -1,19 +1,3 @@
-# == Schema Information
-#
-# Table name: events
-#
-#  id          :integer          not null, primary key
-#  target_type :string(255)
-#  target_id   :integer
-#  title       :string(255)
-#  data        :text
-#  project_id  :integer
-#  created_at  :datetime
-#  updated_at  :datetime
-#  action      :integer
-#  author_id   :integer
-#
-
 class Event < ActiveRecord::Base
   include Sortable
   default_scope { where.not(author_id: nil) }
@@ -28,6 +12,8 @@ class Event < ActiveRecord::Base
   JOINED    = 8 # User joined project
   LEFT      = 9 # User left project
   DESTROYED = 10
+
+  RESET_PROJECT_ACTIVITY_INTERVAL = 1.hour
 
   delegate :name, :email, to: :author, prefix: true, allow_nil: true
   delegate :title, to: :issue, prefix: true, allow_nil: true
@@ -73,17 +59,19 @@ class Event < ActiveRecord::Base
     end
   end
 
-  def proper?(user = nil)
+  def visible_to_user?(user = nil)
     if push?
       true
     elsif membership_changed?
       true
     elsif created_project?
       true
-    elsif issue?
-      Ability.abilities.allowed?(user, :read_issue, issue)
+    elsif issue? || issue_note?
+      Ability.allowed?(user, :read_issue, note? ? note_target : target)
+    elsif merge_request? || merge_request_note?
+      Ability.allowed?(user, :read_merge_request, note? ? note_target : target)
     else
-      ((merge_request? || note?) && target) || milestone?
+      milestone?
     end
   end
 
@@ -96,7 +84,7 @@ class Event < ActiveRecord::Base
   end
 
   def target_title
-    target.title if target && target.respond_to?(:title)
+    target.try(:title)
   end
 
   def created?
@@ -152,7 +140,7 @@ class Event < ActiveRecord::Base
   end
 
   def note?
-    target_type == "Note"
+    target.is_a?(Note)
   end
 
   def issue?
@@ -282,24 +270,24 @@ class Event < ActiveRecord::Base
     branch? && project.default_branch != branch_name
   end
 
-  def note_commit_id
-    target.commit_id
-  end
-
   def target_iid
     target.respond_to?(:iid) ? target.iid : target_id
   end
 
-  def note_short_commit_id
-    Commit.truncate_sha(note_commit_id)
+  def commit_note?
+    target.for_commit?
   end
 
-  def note_commit?
-    target.noteable_type == "Commit"
+  def issue_note?
+    note? && target && target.for_issue?
   end
 
-  def note_project_snippet?
-    target.noteable_type == "Snippet"
+  def merge_request_note?
+    note? && target && target.for_merge_request?
+  end
+
+  def project_snippet_note?
+    target.for_snippet?
   end
 
   def note_target
@@ -307,19 +295,22 @@ class Event < ActiveRecord::Base
   end
 
   def note_target_id
-    if note_commit?
+    if commit_note?
       target.commit_id
     else
       target.noteable_id.to_s
     end
   end
 
-  def note_target_iid
-    if note_target.respond_to?(:iid)
-      note_target.iid
+  def note_target_reference
+    return unless note_target
+
+    # Commit#to_reference returns the full SHA, but we want the short one here
+    if commit_note?
+      note_target.short_id
     else
-      note_target_id
-    end.to_s
+      note_target.to_reference
+    end
   end
 
   def note_target_type
@@ -332,7 +323,7 @@ class Event < ActiveRecord::Base
 
   def body?
     if push?
-      push_with_commits?
+      push_with_commits? || rm_ref?
     elsif note?
       true
     else
@@ -341,8 +332,22 @@ class Event < ActiveRecord::Base
   end
 
   def reset_project_activity
-    if project
-      project.update_column(:last_activity_at, self.created_at)
-    end
+    return unless project
+
+    # Don't bother updating if we know the project was updated recently.
+    return if recent_update?
+
+    # At this point it's possible for multiple threads/processes to try to
+    # update the project. Only one query should actually perform the update,
+    # hence we add the extra WHERE clause for last_activity_at.
+    Project.unscoped.where(id: project_id).
+      where('last_activity_at <= ?', RESET_PROJECT_ACTIVITY_INTERVAL.ago).
+      update_all(last_activity_at: created_at)
+  end
+
+  private
+
+  def recent_update?
+    project.last_activity_at > RESET_PROJECT_ACTIVITY_INTERVAL.ago
   end
 end

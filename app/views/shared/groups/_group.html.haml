@@ -6,10 +6,10 @@
   - if group_member
     .controls.hidden-xs
       - if can?(current_user, :admin_group, group)
-        = link_to edit_group_path(group), class: "btn-sm btn btn-grouped" do
-          %i.fa.fa-cogs
+        = link_to edit_group_path(group), class: "btn" do
+          = icon('cogs')
 
-      = link_to leave_group_group_members_path(group), data: { confirm: leave_group_message(group.name) }, method: :delete, class: "btn-sm btn btn-grouped", title: 'Leave this group' do
+      = link_to leave_group_group_members_path(group), data: { confirm: leave_confirmation_message(group) }, method: :delete, class: "btn", title: 'Leave this group' do
         = icon('sign-out')
 
   .stats
@@ -21,7 +21,7 @@
       = icon('users')
       = number_with_delimiter(group.users.count)
 
-    %span.visibility-icon.has_tooltip{data: { container: 'body', placement: 'left' }, title: visibility_icon_description(group)}
+    %span.visibility-icon.has-tooltip{data: { container: 'body', placement: 'left' }, title: visibility_icon_description(group)}
       = visibility_level_icon(group.visibility_level, fw: false)
 
   = image_tag group_icon(group), class: "avatar s40 hidden-xs"
@@ -35,4 +35,4 @@
 
   - if group.description.present?
     .description
-      = markdown(group.description, pipeline: :description)
+      = markdown_field(group, :description)

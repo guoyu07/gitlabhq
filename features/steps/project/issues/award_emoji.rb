@@ -39,8 +39,8 @@ class Spinach::Features::AwardEmoji < Spinach::FeatureSteps
 
   step 'I can see the activity and food categories' do
     page.within '.emoji-menu' do
-      expect(page).to_not have_selector 'Activity'
-      expect(page).to_not have_selector 'Food'
+      expect(page).not_to have_selector 'Activity'
+      expect(page).not_to have_selector 'Food'
     end
   end
 
@@ -48,7 +48,7 @@ class Spinach::Features::AwardEmoji < Spinach::FeatureSteps
     page.within '.awards' do
       expect(page).to have_selector '.js-emoji-btn'
       expect(page.find('.js-emoji-btn.active .js-counter')).to have_content '1'
-      expect(page).to have_css(".js-emoji-btn.active[data-original-title='me']")
+      expect(page).to have_css(".js-emoji-btn.active[data-original-title='You']")
     end
   end
 
@@ -81,9 +81,7 @@ class Spinach::Features::AwardEmoji < Spinach::FeatureSteps
   end
 
   step 'I search "hand"' do
-    page.within('.emoji-menu-content') do
-      fill_in 'emoji_search', with: 'hand'
-    end
+    fill_in 'emoji_search', with: 'hand'
   end
 
   step 'I see search result for "hand"' do

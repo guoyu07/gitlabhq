@@ -1,24 +1,4 @@
 module GroupsHelper
-  def remove_user_from_group_message(group, member)
-    if member.user
-      "Are you sure you want to remove \"#{member.user.name}\" from \"#{group.name}\"?"
-    else
-      "Are you sure you want to revoke the invitation for \"#{member.invite_email}\" to join \"#{group.name}\"?"
-    end
-  end
-
-  def leave_group_message(group)
-    "Are you sure you want to leave \"#{group}\" group?"
-  end
-
-  def should_user_see_group_roles?(user, group)
-    if user
-      user.is_admin? || group.members.exists?(user_id: user.id)
-    else
-      false
-    end
-  end
-
   def can_change_group_visibility_level?(group)
     can?(current_user, :change_visibility_level, group)
   end
@@ -31,7 +11,7 @@ module GroupsHelper
     if group && group.avatar.present?
       group.avatar.url
     else
-      'no_group_avatar.png'
+      image_path('no_group_avatar.png')
     end
   end
 
@@ -41,6 +21,31 @@ module GroupsHelper
 
     content_tag :span do
       full_title
+    end
+  end
+
+  def projects_lfs_status(group)
+    lfs_status =
+      if group.lfs_enabled?
+        group.projects.select(&:lfs_enabled?).size
+      else
+        group.projects.reject(&:lfs_enabled?).size
+      end
+
+    size = group.projects.size
+
+    if lfs_status == size
+      'for all projects'
+    else
+      "for #{lfs_status} out of #{pluralize(size, 'project')}"
+    end
+  end
+
+  def group_lfs_status(group)
+    status = group.lfs_enabled? ? 'enabled' : 'disabled'
+
+    content_tag(:span, class: "lfs-#{status}") do
+      "#{status.humanize} #{projects_lfs_status(group)}"
     end
   end
 end

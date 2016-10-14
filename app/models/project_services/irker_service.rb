@@ -1,24 +1,3 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#  build_events          :boolean          default(FALSE), not null
-#
-
 require 'uri'
 
 class IrkerService < Service
@@ -91,7 +70,7 @@ class IrkerService < Service
   private
 
   def get_channels
-    return true unless :activated?
+    return true unless activated?
     return true if recipients.nil? || recipients.empty?
 
     map_recipients
@@ -104,7 +83,7 @@ class IrkerService < Service
     self.channels = recipients.split(/\s+/).map do |recipient|
       format_channel(recipient)
     end
-    channels.reject! &:nil?
+    channels.reject!(&:nil?)
   end
 
   def format_channel(recipient)
@@ -133,15 +112,7 @@ class IrkerService < Service
 
     # Authorize both irc://domain.com/#chan and irc://domain.com/chan
     if uri.is_a?(URI) && uri.scheme[/^ircs?\z/] && !uri.path.nil?
-      # Do not authorize irc://domain.com/
-      if uri.fragment.nil? && uri.path.length > 1
-        uri.to_s
-      else
-        # Authorize irc://domain.com/smthg#chan
-        # The irker daemon will deal with it by concatenating smthg and
-        # chan, thus sending messages on #smthgchan
-        uri.to_s
-      end
+      uri.to_s
     end
   end
 end

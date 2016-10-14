@@ -3,8 +3,11 @@ include ActionDispatch::TestProcess
 FactoryGirl.define do
   factory :ci_build, class: Ci::Build do
     name 'test'
+    stage 'test'
+    stage_idx 0
     ref 'master'
     tag false
+    status 'pending'
     created_at 'Di 29. Okt 09:50:00 CET 2013'
     started_at 'Di 29. Okt 09:51:28 CET 2013'
     finished_at 'Di 29. Okt 09:53:28 CET 2013'
@@ -15,8 +18,13 @@ FactoryGirl.define do
         services: ["postgres"]
       }
     end
+    yaml_variables do
+      [
+        { key: :DB_NAME, value: 'postgres', public: true }
+      ]
+    end
 
-    commit factory: :ci_commit
+    pipeline factory: :ci_pipeline
 
     trait :success do
       status 'success'
@@ -38,12 +46,21 @@ FactoryGirl.define do
       status 'pending'
     end
 
+    trait :created do
+      status 'created'
+    end
+
+    trait :manual do
+      status 'skipped'
+      self.when 'manual'
+    end
+
     trait :allowed_to_fail do
       allow_failure true
     end
 
     after(:build) do |build, evaluator|
-      build.project = build.commit.project
+      build.project = build.pipeline.project
     end
 
     factory :ci_not_started_build do
@@ -74,6 +91,22 @@ FactoryGirl.define do
         build.artifacts_metadata =
           fixture_file_upload(Rails.root.join('spec/fixtures/ci_build_artifacts_metadata.gz'),
                              'application/x-gzip')
+
+        build.save!
+      end
+    end
+
+    trait :artifacts_expired do
+      after(:create) do |build, _|
+        build.artifacts_file =
+          fixture_file_upload(Rails.root.join('spec/fixtures/ci_build_artifacts.zip'),
+            'application/zip')
+
+        build.artifacts_metadata =
+          fixture_file_upload(Rails.root.join('spec/fixtures/ci_build_artifacts_metadata.gz'),
+            'application/x-gzip')
+
+        build.artifacts_expire_at = 1.minute.ago
 
         build.save!
       end

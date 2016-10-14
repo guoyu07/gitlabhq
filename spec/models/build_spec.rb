@@ -1,18 +1,24 @@
 require 'spec_helper'
 
 describe Ci::Build, models: true do
-  let(:project) { FactoryGirl.create :project }
-  let(:commit) { FactoryGirl.create :ci_commit, project: project }
-  let(:build) { FactoryGirl.create :ci_build, commit: commit }
+  let(:project) { create(:project) }
+
+  let(:pipeline) do
+    create(:ci_pipeline, project: project,
+                         sha: project.commit.id,
+                         ref: project.default_branch,
+                         status: 'success')
+  end
+
+  let(:build) { create(:ci_build, pipeline: pipeline) }
 
   it { is_expected.to validate_presence_of :ref }
 
   it { is_expected.to respond_to :trace_html }
 
   describe '#first_pending' do
-    let(:first) { FactoryGirl.create :ci_build, commit: commit, status: 'pending', created_at: Date.yesterday }
-    let(:second) { FactoryGirl.create :ci_build, commit: commit, status: 'pending' }
-    before { first; second }
+    let!(:first) { create(:ci_build, pipeline: pipeline, status: 'pending', created_at: Date.yesterday) }
+    let!(:second) { create(:ci_build, pipeline: pipeline, status: 'pending') }
     subject { Ci::Build.first_pending }
 
     it { is_expected.to be_a(Ci::Build) }
@@ -26,43 +32,55 @@ describe Ci::Build, models: true do
     end
     let(:create_from_build) { Ci::Build.create_from build }
 
-    it 'there should be a pending task' do
+    it 'exists a pending task' do
       expect(Ci::Build.pending.count(:all)).to eq 0
       create_from_build
       expect(Ci::Build.pending.count(:all)).to be > 0
     end
   end
 
-  describe '#ignored?' do
-    subject { build.ignored? }
+  describe '#failed_but_allowed?' do
+    subject { build.failed_but_allowed? }
 
-    context 'if build is not allowed to fail' do
-      before { build.allow_failure = false }
+    context 'when build is not allowed to fail' do
+      before do
+        build.allow_failure = false
+      end
 
       context 'and build.status is success' do
-        before { build.status = 'success' }
+        before do
+          build.status = 'success'
+        end
 
         it { is_expected.to be_falsey }
       end
 
       context 'and build.status is failed' do
-        before { build.status = 'failed' }
+        before do
+          build.status = 'failed'
+        end
 
         it { is_expected.to be_falsey }
       end
     end
 
-    context 'if build is allowed to fail' do
-      before { build.allow_failure = true }
+    context 'when build is allowed to fail' do
+      before do
+        build.allow_failure = true
+      end
 
       context 'and build.status is success' do
-        before { build.status = 'success' }
+        before do
+          build.status = 'success'
+        end
 
         it { is_expected.to be_falsey }
       end
 
       context 'and build.status is failed' do
-        before { build.status = 'failed' }
+        before do
+          build.status = 'failed'
+        end
 
         it { is_expected.to be_truthy }
       end
@@ -70,27 +88,91 @@ describe Ci::Build, models: true do
   end
 
   describe '#trace' do
-    subject { build.trace_html }
+    it { expect(build.trace).to be_nil }
 
-    it { is_expected.to be_empty }
-
-    context 'if build.trace contains text' do
+    context 'when build.trace contains text' do
       let(:text) { 'example output' }
-      before { build.trace = text }
+      before do
+        build.trace = text
+      end
 
-      it { is_expected.to include(text) }
-      it { expect(subject.length).to be >= text.length }
+      it { expect(build.trace).to eq(text) }
     end
 
-    context 'if build.trace hides token' do
+    context 'when build.trace hides runners token' do
       let(:token) { 'my_secret_token' }
 
       before do
-        build.project.update_attributes(runners_token: token)
-        build.update_attributes(trace: token)
+        build.update(trace: token)
+        build.project.update(runners_token: token)
       end
 
-      it { is_expected.to_not include(token) }
+      it { expect(build.trace).not_to include(token) }
+      it { expect(build.raw_trace).to include(token) }
+    end
+
+    context 'when build.trace hides build token' do
+      let(:token) { 'my_secret_token' }
+
+      before do
+        build.update(trace: token)
+        build.update(token: token)
+      end
+
+      it { expect(build.trace).not_to include(token) }
+      it { expect(build.raw_trace).to include(token) }
+    end
+  end
+
+  describe '#raw_trace' do
+    subject { build.raw_trace }
+
+    context 'when build.trace hides runners token' do
+      let(:token) { 'my_secret_token' }
+
+      before do
+        build.project.update(runners_token: token)
+        build.update(trace: token)
+      end
+
+      it { is_expected.not_to include(token) }
+    end
+
+    context 'when build.trace hides build token' do
+      let(:token) { 'my_secret_token' }
+
+      before do
+        build.update(token: token)
+        build.update(trace: token)
+      end
+
+      it { is_expected.not_to include(token) }
+    end
+  end
+
+  context '#append_trace' do
+    subject { build.trace_html }
+
+    context 'when build.trace hides runners token' do
+      let(:token) { 'my_secret_token' }
+
+      before do
+        build.project.update(runners_token: token)
+        build.append_trace(token, 0)
+      end
+
+      it { is_expected.not_to include(token) }
+    end
+
+    context 'when build.trace hides build token' do
+      let(:token) { 'my_secret_token' }
+
+      before do
+        build.update(token: token)
+        build.append_trace(token, 0)
+      end
+
+      it { is_expected.not_to include(token) }
     end
   end
 
@@ -98,7 +180,7 @@ describe Ci::Build, models: true do
   # describe :timeout do
   #   subject { build.timeout }
   #
-  #   it { is_expected.to eq(commit.project.timeout) }
+  #   it { is_expected.to eq(pipeline.project.timeout) }
   # end
 
   describe '#options' do
@@ -125,13 +207,13 @@ describe Ci::Build, models: true do
   describe '#project' do
     subject { build.project }
 
-    it { is_expected.to eq(commit.project) }
+    it { is_expected.to eq(pipeline.project) }
   end
 
   describe '#project_id' do
     subject { build.project_id }
 
-    it { is_expected.to eq(commit.project_id) }
+    it { is_expected.to eq(pipeline.project_id) }
   end
 
   describe '#project_name' do
@@ -173,107 +255,224 @@ describe Ci::Build, models: true do
   end
 
   describe '#variables' do
+    let(:container_registry_enabled) { false }
+    let(:predefined_variables) do
+      [
+        { key: 'CI', value: 'true', public: true },
+        { key: 'GITLAB_CI', value: 'true', public: true },
+        { key: 'CI_BUILD_ID', value: build.id.to_s, public: true },
+        { key: 'CI_BUILD_TOKEN', value: build.token, public: false },
+        { key: 'CI_BUILD_REF', value: build.sha, public: true },
+        { key: 'CI_BUILD_BEFORE_SHA', value: build.before_sha, public: true },
+        { key: 'CI_BUILD_REF_NAME', value: 'master', public: true },
+        { key: 'CI_BUILD_NAME', value: 'test', public: true },
+        { key: 'CI_BUILD_STAGE', value: 'test', public: true },
+        { key: 'CI_SERVER_NAME', value: 'GitLab', public: true },
+        { key: 'CI_SERVER_VERSION', value: Gitlab::VERSION, public: true },
+        { key: 'CI_SERVER_REVISION', value: Gitlab::REVISION, public: true },
+        { key: 'CI_PROJECT_ID', value: project.id.to_s, public: true },
+        { key: 'CI_PROJECT_NAME', value: project.path, public: true },
+        { key: 'CI_PROJECT_PATH', value: project.path_with_namespace, public: true },
+        { key: 'CI_PROJECT_NAMESPACE', value: project.namespace.path, public: true },
+        { key: 'CI_PROJECT_URL', value: project.web_url, public: true },
+        { key: 'CI_PIPELINE_ID', value: pipeline.id.to_s, public: true }
+      ]
+    end
+
+    before do
+      stub_container_registry_config(enabled: container_registry_enabled, host_port: 'registry.example.com')
+    end
+
+    subject { build.variables }
+
     context 'returns variables' do
-      subject { build.variables }
+      before do
+        build.yaml_variables = []
+      end
 
-      let(:predefined_variables) do
+      it { is_expected.to eq(predefined_variables) }
+    end
+
+    context 'when build has user' do
+      let(:user) { create(:user, username: 'starter') }
+      let(:user_variables) do
         [
-          { key: :CI_BUILD_NAME, value: 'test', public: true },
-          { key: :CI_BUILD_STAGE, value: 'stage', public: true },
+          { key: 'GITLAB_USER_ID',    value: user.id.to_s, public: true },
+          { key: 'GITLAB_USER_EMAIL', value: user.email,   public: true }
         ]
       end
 
-      let(:yaml_variables) do
-        [
-          { key: :DB_NAME, value: 'postgres', public: true }
-        ]
+      before do
+        build.update_attributes(user: user)
       end
 
-      before { build.update_attributes(stage: 'stage') }
+      it { user_variables.each { |v| is_expected.to include(v) } }
+    end
 
-      it { is_expected.to eq(predefined_variables + yaml_variables) }
-
-      context 'for tag' do
-        let(:tag_variable) do
-          [
-            { key: :CI_BUILD_TAG, value: 'master', public: true }
-          ]
-        end
-
-        before { build.update_attributes(tag: true) }
-
-        it { is_expected.to eq(tag_variable + predefined_variables + yaml_variables) }
+    context 'when build started manually' do
+      before do
+        build.update_attributes(when: :manual)
       end
 
-      context 'and secure variables' do
-        let(:secure_variables) do
-          [
-            { key: 'SECRET_KEY', value: 'secret_value', public: false }
-          ]
-        end
+      let(:manual_variable) do
+        { key: 'CI_BUILD_MANUAL', value: 'true', public: true }
+      end
 
+      it { is_expected.to include(manual_variable) }
+    end
+
+    context 'when build is for tag' do
+      let(:tag_variable) do
+        { key: 'CI_BUILD_TAG', value: 'master', public: true }
+      end
+
+      before do
+        build.update_attributes(tag: true)
+      end
+
+      it { is_expected.to include(tag_variable) }
+    end
+
+    context 'when secure variable is defined' do
+      let(:secure_variable) do
+        { key: 'SECRET_KEY', value: 'secret_value', public: false }
+      end
+
+      before do
+        build.project.variables << Ci::Variable.new(key: 'SECRET_KEY', value: 'secret_value')
+      end
+
+      it { is_expected.to include(secure_variable) }
+    end
+
+    context 'when build is for triggers' do
+      let(:trigger) { create(:ci_trigger, project: project) }
+      let(:trigger_request) { create(:ci_trigger_request_with_variables, pipeline: pipeline, trigger: trigger) }
+      let(:user_trigger_variable) do
+        { key: :TRIGGER_KEY_1, value: 'TRIGGER_VALUE_1', public: false }
+      end
+      let(:predefined_trigger_variable) do
+        { key: 'CI_BUILD_TRIGGERED', value: 'true', public: true }
+      end
+
+      before do
+        build.trigger_request = trigger_request
+      end
+
+      it { is_expected.to include(user_trigger_variable) }
+      it { is_expected.to include(predefined_trigger_variable) }
+    end
+
+    context 'when yaml_variables are undefined' do
+      before do
+        build.yaml_variables = nil
+      end
+
+      context 'use from gitlab-ci.yml' do
         before do
-          build.project.variables << Ci::Variable.new(key: 'SECRET_KEY', value: 'secret_value')
+          stub_ci_pipeline_yaml_file(config)
         end
 
-        it { is_expected.to eq(predefined_variables + yaml_variables + secure_variables) }
+        context 'when config is not found' do
+          let(:config) { nil }
 
-        context 'and trigger variables' do
-          let(:trigger) { FactoryGirl.create :ci_trigger, project: project }
-          let(:trigger_request) { FactoryGirl.create :ci_trigger_request_with_variables, commit: commit, trigger: trigger }
-          let(:trigger_variables) do
-            [
-              { key: :TRIGGER_KEY, value: 'TRIGGER_VALUE', public: false }
-            ]
-          end
-          let(:predefined_trigger_variable) do
-            [
-              { key: :CI_BUILD_TRIGGERED, value: 'true', public: true }
-            ]
-          end
+          it { is_expected.to eq(predefined_variables) }
+        end
 
-          before do
-            build.trigger_request = trigger_request
+        context 'when config does not have a questioned job' do
+          let(:config) do
+            YAML.dump({
+              test_other: {
+                script: 'Hello World'
+              }
+            })
           end
 
-          it { is_expected.to eq(predefined_variables + predefined_trigger_variable + yaml_variables + secure_variables + trigger_variables) }
+          it { is_expected.to eq(predefined_variables) }
+        end
+
+        context 'when config has variables' do
+          let(:config) do
+            YAML.dump({
+              test: {
+                script: 'Hello World',
+                variables: {
+                  KEY: 'value'
+                }
+              }
+            })
+          end
+          let(:variables) do
+            [{ key: :KEY, value: 'value', public: true }]
+          end
+
+          it { is_expected.to eq(predefined_variables + variables) }
         end
       end
+    end
+
+    context 'when container registry is enabled' do
+      let(:container_registry_enabled) { true }
+      let(:ci_registry) do
+        { key: 'CI_REGISTRY',  value: 'registry.example.com',  public: true }
+      end
+      let(:ci_registry_image) do
+        { key: 'CI_REGISTRY_IMAGE',  value: project.container_registry_repository_url, public: true }
+      end
+
+      context 'and is disabled for project' do
+        before do
+          project.update(container_registry_enabled: false)
+        end
+
+        it { is_expected.to include(ci_registry) }
+        it { is_expected.not_to include(ci_registry_image) }
+      end
+
+      context 'and is enabled for project' do
+        before do
+          project.update(container_registry_enabled: true)
+        end
+
+        it { is_expected.to include(ci_registry) }
+        it { is_expected.to include(ci_registry_image) }
+      end
+    end
+
+    context 'when runner is assigned to build' do
+      let(:runner) { create(:ci_runner, description: 'description', tag_list: ['docker', 'linux']) }
+
+      before do
+        build.update(runner: runner)
+      end
+
+      it { is_expected.to include({ key: 'CI_RUNNER_ID', value: runner.id.to_s, public: true }) }
+      it { is_expected.to include({ key: 'CI_RUNNER_DESCRIPTION', value: 'description', public: true }) }
+      it { is_expected.to include({ key: 'CI_RUNNER_TAGS', value: 'docker, linux', public: true }) }
+    end
+
+    context 'returns variables in valid order' do
+      before do
+        allow(build).to receive(:predefined_variables) { ['predefined'] }
+        allow(project).to receive(:predefined_variables) { ['project'] }
+        allow(pipeline).to receive(:predefined_variables) { ['pipeline'] }
+        allow(build).to receive(:yaml_variables) { ['yaml'] }
+        allow(project).to receive(:secret_variables) { ['secret'] }
+      end
+
+      it { is_expected.to eq(%w[predefined project pipeline yaml secret]) }
     end
   end
 
-  describe '#can_be_served?' do
-    let(:runner) { FactoryGirl.create :ci_runner }
-
-    before { build.project.runners << runner }
-
-    context 'runner without tags' do
-      it 'can handle builds without tags' do
-        expect(build.can_be_served?(runner)).to be_truthy
-      end
-
-      it 'cannot handle build with tags' do
-        build.tag_list = ['aa']
-        expect(build.can_be_served?(runner)).to be_falsey
-      end
+  describe '#has_tags?' do
+    context 'when build has tags' do
+      subject { create(:ci_build, tag_list: ['tag']) }
+      it { is_expected.to have_tags }
     end
 
-    context 'runner with tags' do
-      before { runner.tag_list = ['bb', 'cc'] }
-
-      it 'can handle builds without tags' do
-        expect(build.can_be_served?(runner)).to be_truthy
-      end
-
-      it 'can handle build with matching tags' do
-        build.tag_list = ['bb']
-        expect(build.can_be_served?(runner)).to be_truthy
-      end
-
-      it 'cannot handle build with not matching tags' do
-        build.tag_list = ['aa']
-        expect(build.can_be_served?(runner)).to be_falsey
-      end
+    context 'when build does not have tags' do
+      subject { create(:ci_build, tag_list: []) }
+      it { is_expected.not_to have_tags }
     end
   end
 
@@ -284,8 +483,8 @@ describe Ci::Build, models: true do
       it { is_expected.to be_falsey }
     end
 
-    context 'if there are runner' do
-      let(:runner) { FactoryGirl.create :ci_runner }
+    context 'when there are runners' do
+      let(:runner) { create(:ci_runner) }
 
       before do
         build.project.runners << runner
@@ -305,38 +504,39 @@ describe Ci::Build, models: true do
       end
 
       it 'that cannot handle build' do
-        expect_any_instance_of(Ci::Build).to receive(:can_be_served?).and_return(false)
+        expect_any_instance_of(Ci::Runner).to receive(:can_pick?).and_return(false)
         is_expected.to be_falsey
       end
-
     end
   end
 
   describe '#stuck?' do
     subject { build.stuck? }
 
-    %w(pending).each do |state|
-      context "if commit_status.status is #{state}" do
-        before { build.status = state }
+    context "when commit_status.status is pending" do
+      before do
+        build.status = 'pending'
+      end
 
-        it { is_expected.to be_truthy }
+      it { is_expected.to be_truthy }
 
-        context "and there are specific runner" do
-          let(:runner) { FactoryGirl.create :ci_runner, contacted_at: 1.second.ago }
+      context "and there are specific runner" do
+        let(:runner) { create(:ci_runner, contacted_at: 1.second.ago) }
 
-          before do
-            build.project.runners << runner
-            runner.save
-          end
-
-          it { is_expected.to be_falsey }
+        before do
+          build.project.runners << runner
+          runner.save
         end
+
+        it { is_expected.to be_falsey }
       end
     end
 
-    %w(success failed canceled running).each do |state|
-      context "if commit_status.status is #{state}" do
-        before { build.status = state }
+    %w[success failed canceled running].each do |state|
+      context "when commit_status.status is #{state}" do
+        before do
+          build.status = state
+        end
 
         it { is_expected.to be_falsey }
       end
@@ -347,16 +547,44 @@ describe Ci::Build, models: true do
     subject { build.artifacts? }
 
     context 'artifacts archive does not exist' do
-      before { build.update_attributes(artifacts_file: nil) }
+      before do
+        build.update_attributes(artifacts_file: nil)
+      end
+
       it { is_expected.to be_falsy }
     end
 
     context 'artifacts archive exists' do
       let(:build) { create(:ci_build, :artifacts) }
       it { is_expected.to be_truthy }
+
+      context 'is expired' do
+        before { build.update(artifacts_expire_at: Time.now - 7.days)  }
+        it { is_expected.to be_falsy }
+      end
+
+      context 'is not expired' do
+        before { build.update(artifacts_expire_at: Time.now + 7.days)  }
+        it { is_expected.to be_truthy }
+      end
     end
   end
 
+  describe '#artifacts_expired?' do
+    subject { build.artifacts_expired? }
+
+    context 'is expired' do
+      before { build.update(artifacts_expire_at: Time.now - 7.days)  }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'is not expired' do
+      before { build.update(artifacts_expire_at: Time.now + 7.days)  }
+
+      it { is_expected.to be_falsey }
+    end
+  end
 
   describe '#artifacts_metadata?' do
     subject { build.artifacts_metadata? }
@@ -369,9 +597,8 @@ describe Ci::Build, models: true do
       it { is_expected.to be_truthy }
     end
   end
-
   describe '#repo_url' do
-    let(:build) { FactoryGirl.create :ci_build }
+    let(:build) { create(:ci_build) }
     let(:project) { build.project }
 
     subject { build.repo_url }
@@ -384,44 +611,87 @@ describe Ci::Build, models: true do
     it { is_expected.to include(project.web_url[7..-1]) }
   end
 
-  describe '#depends_on_builds' do
-    let!(:build) { FactoryGirl.create :ci_build, commit: commit, name: 'build', stage_idx: 0, stage: 'build' }
-    let!(:rspec_test) { FactoryGirl.create :ci_build, commit: commit, name: 'rspec', stage_idx: 1, stage: 'test' }
-    let!(:rubocop_test) { FactoryGirl.create :ci_build, commit: commit, name: 'rubocop', stage_idx: 1, stage: 'test' }
-    let!(:staging) { FactoryGirl.create :ci_build, commit: commit, name: 'staging', stage_idx: 2, stage: 'deploy' }
+  describe '#artifacts_expire_in' do
+    subject { build.artifacts_expire_in }
+    it { is_expected.to be_nil }
 
-    it 'to have no dependents if this is first build' do
+    context 'when artifacts_expire_at is specified' do
+      let(:expire_at) { Time.now + 7.days }
+
+      before { build.artifacts_expire_at = expire_at }
+
+      it { is_expected.to be_within(5).of(expire_at - Time.now) }
+    end
+  end
+
+  describe '#artifacts_expire_in=' do
+    subject { build.artifacts_expire_in }
+
+    it 'when assigning valid duration' do
+      build.artifacts_expire_in = '7 days'
+
+      is_expected.to be_within(10).of(7.days.to_i)
+    end
+
+    it 'when assigning invalid duration' do
+      expect { build.artifacts_expire_in = '7 elephants' }.to raise_error(ChronicDuration::DurationParseError)
+      is_expected.to be_nil
+    end
+
+    it 'when resseting value' do
+      build.artifacts_expire_in = nil
+
+      is_expected.to be_nil
+    end
+  end
+
+  describe '#keep_artifacts!' do
+    let(:build) { create(:ci_build, artifacts_expire_at: Time.now + 7.days) }
+
+    it 'to reset expire_at' do
+      build.keep_artifacts!
+
+      expect(build.artifacts_expire_at).to be_nil
+    end
+  end
+
+  describe '#depends_on_builds' do
+    let!(:build) { create(:ci_build, pipeline: pipeline, name: 'build', stage_idx: 0, stage: 'build') }
+    let!(:rspec_test) { create(:ci_build, pipeline: pipeline, name: 'rspec', stage_idx: 1, stage: 'test') }
+    let!(:rubocop_test) { create(:ci_build, pipeline: pipeline, name: 'rubocop', stage_idx: 1, stage: 'test') }
+    let!(:staging) { create(:ci_build, pipeline: pipeline, name: 'staging', stage_idx: 2, stage: 'deploy') }
+
+    it 'expects to have no dependents if this is first build' do
       expect(build.depends_on_builds).to be_empty
     end
 
-    it 'to have one dependent if this is test' do
+    it 'expects to have one dependent if this is test' do
       expect(rspec_test.depends_on_builds.map(&:id)).to contain_exactly(build.id)
     end
 
-    it 'to have all builds from build and test stage if this is last' do
+    it 'expects to have all builds from build and test stage if this is last' do
       expect(staging.depends_on_builds.map(&:id)).to contain_exactly(build.id, rspec_test.id, rubocop_test.id)
     end
 
-    it 'to have retried builds instead the original ones' do
+    it 'expects to have retried builds instead the original ones' do
       retried_rspec = Ci::Build.retry(rspec_test)
       expect(staging.depends_on_builds.map(&:id)).to contain_exactly(build.id, retried_rspec.id, rubocop_test.id)
     end
   end
 
-  def create_mr(build, commit, factory: :merge_request, created_at: Time.now)
-    FactoryGirl.create(factory,
-                       source_project_id: commit.gl_project_id,
-                       target_project_id: commit.gl_project_id,
-                       source_branch: build.ref,
-                       created_at: created_at)
+  def create_mr(build, pipeline, factory: :merge_request, created_at: Time.now)
+    create(factory, source_project_id: pipeline.gl_project_id,
+                    target_project_id: pipeline.gl_project_id,
+                    source_branch: build.ref,
+                    created_at: created_at)
   end
 
   describe '#merge_request' do
-    context 'when a MR has a reference to the commit' do
+    context 'when a MR has a reference to the pipeline' do
       before do
-        @merge_request = create_mr(build, commit, factory: :merge_request)
+        @merge_request = create_mr(build, pipeline, factory: :merge_request)
 
-        commits = [double(id: commit.sha)]
+        commits = [double(id: pipeline.sha)]
         allow(@merge_request).to receive(:commits).and_return(commits)
         allow(MergeRequest).to receive_message_chain(:includes, :where, :reorder).and_return([@merge_request])
       end
@@ -431,19 +701,19 @@ describe Ci::Build, models: true do
       end
     end
 
-    context 'when there is not a MR referencing the commit' do
+    context 'when there is not a MR referencing the pipeline' do
       it 'returns nil' do
         expect(build.merge_request).to be_nil
       end
     end
 
-    context 'when more than one MR have a reference to the commit' do
+    context 'when more than one MR have a reference to the pipeline' do
       before do
-        @merge_request = create_mr(build, commit, factory: :merge_request)
+        @merge_request = create_mr(build, pipeline, factory: :merge_request)
         @merge_request.close!
-        @merge_request2 = create_mr(build, commit, factory: :merge_request)
+        @merge_request2 = create_mr(build, pipeline, factory: :merge_request)
 
-        commits = [double(id: commit.sha)]
+        commits = [double(id: pipeline.sha)]
         allow(@merge_request).to receive(:commits).and_return(commits)
         allow(@merge_request2).to receive(:commits).and_return(commits)
         allow(MergeRequest).to receive_message_chain(:includes, :where, :reorder).and_return([@merge_request, @merge_request2])
@@ -456,11 +726,11 @@ describe Ci::Build, models: true do
 
     context 'when a Build is created after the MR' do
       before do
-        @merge_request = create_mr(build, commit, factory: :merge_request_with_diffs)
-        commit2 = FactoryGirl.create :ci_commit, project: project
-        @build2 = FactoryGirl.create :ci_build, commit: commit2
+        @merge_request = create_mr(build, pipeline, factory: :merge_request_with_diffs)
+        pipeline2 = create(:ci_pipeline, project: project)
+        @build2 = create(:ci_build, pipeline: pipeline2)
 
-        commits = [double(id: commit.sha), double(id: commit2.sha)]
+        commits = [double(id: pipeline.sha), double(id: pipeline2.sha)]
         allow(@merge_request).to receive(:commits).and_return(commits)
         allow(MergeRequest).to receive_message_chain(:includes, :where, :reorder).and_return([@merge_request])
       end
@@ -473,24 +743,24 @@ describe Ci::Build, models: true do
 
   describe 'build erasable' do
     shared_examples 'erasable' do
-      it 'should remove artifact file' do
+      it 'removes artifact file' do
         expect(build.artifacts_file.exists?).to be_falsy
       end
 
-      it 'should remove artifact metadata file' do
+      it 'removes artifact metadata file' do
         expect(build.artifacts_metadata.exists?).to be_falsy
       end
 
-      it 'should erase build trace in trace file' do
+      it 'erases build trace in trace file' do
         expect(build.trace).to be_empty
       end
 
-      it 'should set erased to true' do
+      it 'sets erased to true' do
         expect(build.erased?).to be true
       end
 
-      it 'should set erase date' do
-        expect(build.erased_at).to_not be_falsy
+      it 'sets erase date' do
+        expect(build.erased_at).not_to be_falsy
       end
     end
 
@@ -513,14 +783,16 @@ describe Ci::Build, models: true do
       let!(:build) { create(:ci_build, :trace, :success, :artifacts) }
 
       describe '#erase' do
-        before { build.erase(erased_by: user) }
+        before do
+          build.erase(erased_by: user)
+        end
 
         context 'erased by user' do
           let!(:user) { create(:user, username: 'eraser') }
 
           include_examples 'erasable'
 
-          it 'should record user who erased a build' do
+          it 'records user who erased a build' do
             expect(build.erased_by).to eq user
           end
         end
@@ -530,7 +802,7 @@ describe Ci::Build, models: true do
 
           include_examples 'erasable'
 
-          it 'should not set user who erased a build' do
+          it 'does not set user who erased a build' do
             expect(build.erased_by).to be_nil
           end
         end
@@ -538,7 +810,7 @@ describe Ci::Build, models: true do
 
       describe '#erasable?' do
         subject { build.erasable? }
-        it { is_expected.to eq true }
+        it { is_expected.to be_truthy }
       end
 
       describe '#erased?' do
@@ -546,25 +818,237 @@ describe Ci::Build, models: true do
         subject { build.erased? }
 
         context 'build has not been erased' do
-          it { is_expected.to be false }
+          it { is_expected.to be_falsey }
         end
 
         context 'build has been erased' do
-          before { build.erase }
+          before do
+            build.erase
+          end
 
-          it { is_expected.to be true }
+          it { is_expected.to be_truthy }
         end
       end
 
       context 'metadata and build trace are not available' do
         let!(:build) { create(:ci_build, :success, :artifacts) }
-        before { build.remove_artifacts_metadata! }
+
+        before do
+          build.remove_artifacts_metadata!
+        end
 
         describe '#erase' do
-          it 'should not raise error' do
-            expect { build.erase }.to_not raise_error
+          it 'does not raise error' do
+            expect { build.erase }.not_to raise_error
           end
         end
+      end
+    end
+  end
+
+  describe '#commit' do
+    it 'returns commit pipeline has been created for' do
+      expect(build.commit).to eq project.commit
+    end
+  end
+
+  describe '#when' do
+    subject { build.when }
+
+    context 'when `when` is undefined' do
+      before do
+        build.when = nil
+      end
+
+      context 'use from gitlab-ci.yml' do
+        before do
+          stub_ci_pipeline_yaml_file(config)
+        end
+
+        context 'when config is not found' do
+          let(:config) { nil }
+
+          it { is_expected.to eq('on_success') }
+        end
+
+        context 'when config does not have a questioned job' do
+          let(:config) do
+            YAML.dump({
+                        test_other: {
+                          script: 'Hello World'
+                        }
+                      })
+          end
+
+          it { is_expected.to eq('on_success') }
+        end
+
+        context 'when config has `when`' do
+          let(:config) do
+            YAML.dump({
+                        test: {
+                          script: 'Hello World',
+                          when: 'always'
+                        }
+                      })
+          end
+
+          it { is_expected.to eq('always') }
+        end
+      end
+    end
+  end
+
+  describe '#retryable?' do
+    context 'when build is running' do
+      before do
+        build.run!
+      end
+
+      it { expect(build).not_to be_retryable }
+    end
+
+    context 'when build is finished' do
+      before do
+        build.success!
+      end
+
+      it { expect(build).to be_retryable }
+    end
+  end
+
+  describe '#manual?' do
+    before do
+      build.update(when: value)
+    end
+
+    subject { build.manual? }
+
+    context 'when is set to manual' do
+      let(:value) { 'manual' }
+
+      it { is_expected.to be_truthy }
+    end
+
+    context 'when set to something else' do
+      let(:value) { 'something else' }
+
+      it { is_expected.to be_falsey }
+    end
+  end
+
+  describe '#other_actions' do
+    let(:build) { create(:ci_build, :manual, pipeline: pipeline) }
+    let!(:other_build) { create(:ci_build, :manual, pipeline: pipeline, name: 'other action') }
+
+    subject { build.other_actions }
+
+    it 'returns other actions' do
+      is_expected.to contain_exactly(other_build)
+    end
+
+    context 'when build is retried' do
+      let!(:new_build) { Ci::Build.retry(build) }
+
+      it 'does not return any of them' do
+        is_expected.not_to include(build, new_build)
+      end
+    end
+
+    context 'when other build is retried' do
+      let!(:retried_build) { Ci::Build.retry(other_build) }
+
+      it 'returns a retried build' do
+        is_expected.to contain_exactly(retried_build)
+      end
+    end
+  end
+
+  describe '#play' do
+    let(:build) { create(:ci_build, :manual, pipeline: pipeline) }
+
+    subject { build.play }
+
+    it 'enqueues a build' do
+      is_expected.to be_pending
+      is_expected.to eq(build)
+    end
+
+    context 'for successful build' do
+      before do
+        build.update(status: 'success')
+      end
+
+      it 'creates a new build' do
+        is_expected.to be_pending
+        is_expected.not_to eq(build)
+      end
+    end
+  end
+
+  describe '#when' do
+    subject { build.when }
+
+    context 'when `when` is undefined' do
+      before do
+        build.when = nil
+      end
+
+      context 'use from gitlab-ci.yml' do
+        before do
+          stub_ci_pipeline_yaml_file(config)
+        end
+
+        context 'when config is not found' do
+          let(:config) { nil }
+
+          it { is_expected.to eq('on_success') }
+        end
+
+        context 'when config does not have a questioned job' do
+          let(:config) do
+            YAML.dump({
+                        test_other: {
+                          script: 'Hello World'
+                        }
+                      })
+          end
+
+          it { is_expected.to eq('on_success') }
+        end
+
+        context 'when config has when' do
+          let(:config) do
+            YAML.dump({
+                        test: {
+                          script: 'Hello World',
+                          when: 'always'
+                        }
+                      })
+          end
+
+          it { is_expected.to eq('always') }
+        end
+      end
+    end
+  end
+
+  describe '#retryable?' do
+    context 'when build is running' do
+      before { build.run! }
+
+      it 'returns false' do
+        expect(build).not_to be_retryable
+      end
+    end
+
+    context 'when build is finished' do
+      before do
+        build.success!
+      end
+
+      it 'returns true' do
+        expect(build).to be_retryable
       end
     end
   end

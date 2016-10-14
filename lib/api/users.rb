@@ -11,6 +11,10 @@ module API
       #  GET /users?search=Admin
       #  GET /users?username=root
       get do
+        unless can?(current_user, :read_users_list, nil)
+          render_api_error!("Not authorized.", 403)
+        end
+
         if params[:username].present?
           @users = User.where(username: params[:username])
         else
@@ -36,10 +40,12 @@ module API
       get ":id" do
         @user = User.find(params[:id])
 
-        if current_user.is_admin?
+        if current_user && current_user.is_admin?
           present @user, with: Entities::UserFull
-        else
+        elsif can?(current_user, :read_user, @user)
           present @user, with: Entities::User
+        else
+          render_api_error!("User not found.", 404)
         end
       end
 
@@ -54,10 +60,12 @@ module API
       #   linkedin                          - Linkedin
       #   twitter                           - Twitter account
       #   website_url                       - Website url
+      #   organization                      - Organization
       #   projects_limit                    - Number of projects user can create
       #   extern_uid                        - External authentication provider UID
       #   provider                          - External provider
       #   bio                               - Bio
+      #   location                          - Location of the user
       #   admin                             - User is admin - true or false (default)
       #   can_create_group                  - User can create groups - true or false
       #   confirm                           - Require user confirmation - true (default) or false
@@ -67,9 +75,9 @@ module API
       post do
         authenticated_as_admin!
         required_attributes! [:email, :password, :name, :username]
-        attrs = attributes_for_keys [:email, :name, :password, :skype, :linkedin, :twitter, :projects_limit, :username, :bio, :can_create_group, :admin, :confirm, :external]
+        attrs = attributes_for_keys [:email, :name, :password, :skype, :linkedin, :twitter, :projects_limit, :username, :bio, :location, :can_create_group, :admin, :confirm, :external, :organization]
         admin = attrs.delete(:admin)
-        confirm = !(attrs.delete(:confirm) =~ (/(false|f|no|0)$/i))
+        confirm = !(attrs.delete(:confirm) =~ /(false|f|no|0)$/i)
         user = User.build_user(attrs)
         user.admin = admin unless admin.nil?
         user.skip_confirmation! unless confirm
@@ -104,8 +112,10 @@ module API
       #   linkedin                          - Linkedin
       #   twitter                           - Twitter account
       #   website_url                       - Website url
+      #   organization                      - Organization
       #   projects_limit                    - Limit projects each user can create
       #   bio                               - Bio
+      #   location                          - Location of the user
       #   admin                             - User is admin - true or false (default)
       #   can_create_group                  - User can create groups - true or false
       #   external                          - Flags the user as external - true or false(default)
@@ -114,7 +124,7 @@ module API
       put ":id" do
         authenticated_as_admin!
 
-        attrs = attributes_for_keys [:email, :name, :password, :skype, :linkedin, :twitter, :website_url, :projects_limit, :username, :bio, :can_create_group, :admin, :external]
+        attrs = attributes_for_keys [:email, :name, :password, :skype, :linkedin, :twitter, :website_url, :projects_limit, :username, :bio, :location, :can_create_group, :admin, :external, :organization]
         user = User.find(params[:id])
         not_found!('User') unless user
 
@@ -311,6 +321,26 @@ module API
           user.activate
         end
       end
+
+      desc 'Get contribution events of a specified user' do
+        detail 'This feature was introduced in GitLab 8.13.'
+        success Entities::Event
+      end
+      params do
+        requires :id, type: String, desc: 'The user ID'
+      end
+      get ':id/events' do
+        user = User.find_by(id: declared(params).id)
+        not_found!('User') unless user
+
+        events = user.recent_events.
+          merge(ProjectsFinder.new.execute(current_user)).
+          references(:project).
+          with_associations.
+          page(params[:page])
+
+        present paginate(events), with: Entities::Event
+      end
     end
 
     resource :user do
@@ -319,7 +349,7 @@ module API
       # Example Request:
       #   GET /user
       get do
-        present @current_user, with: Entities::UserLogin
+        present @current_user, with: Entities::UserFull
       end
 
       # Get currently authenticated user's keys

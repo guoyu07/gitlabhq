@@ -13,7 +13,7 @@ class Spinach::Features::Dashboard < Spinach::FeatureSteps
   end
 
   step 'I should see "Shop" project CI status' do
-    expect(page).to have_link "Build skipped"
+    expect(page).to have_link "Commit: skipped"
   end
 
   step 'I should see last push widget' do
@@ -26,6 +26,7 @@ class Spinach::Features::Dashboard < Spinach::FeatureSteps
   end
 
   step 'I see prefilled new Merge Request page' do
+    expect(page).to have_selector('.merge-request-form')
     expect(current_path).to eq new_namespace_project_merge_request_path(@project.namespace, @project)
     expect(find("#merge_request_target_project_id").value).to eq @project.id.to_s
     expect(find("input#merge_request_source_branch").value).to eq "fix"
@@ -86,5 +87,24 @@ class Spinach::Features::Dashboard < Spinach::FeatureSteps
 
   step 'I should see 1 project at group list' do
     expect(find('span.last_activity/span')).to have_content('1')
+  end
+
+  step 'I filter the list by label "feature"' do
+    page.within ".labels-filter" do
+      find('.dropdown').click
+      click_link "feature"
+    end
+  end
+
+  step 'I should see "Bugfix1" in issues list' do
+    page.within "ul.content-list" do
+      expect(page).to have_content "Bugfix1"
+    end
+  end
+
+  step 'project "Shop" has issue "Bugfix1" with label "feature"' do
+    project = Project.find_by(name: "Shop")
+    issue = create(:issue, title: "Bugfix1", project: project, assignee: current_user)
+    issue.labels << project.labels.find_by(title: 'feature')
   end
 end

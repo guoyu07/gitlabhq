@@ -101,23 +101,6 @@ module ApplicationHelper
     'Never'
   end
 
-  def grouped_options_refs
-    repository = @project.repository
-
-    options = [
-      ['Branches', repository.branch_names],
-      ['Tags', VersionSorter.rsort(repository.tag_names)]
-    ]
-
-    # If reference is commit id - we should add it to branch/tag selectbox
-    if(@ref && !options.flatten.include?(@ref) &&
-       @ref =~ /\A[0-9a-zA-Z]{6,52}\z/)
-      options << ['Commit', [@ref]]
-    end
-
-    grouped_options_for_select(options, @ref || @project.default_branch)
-  end
-
   # Define whenever show last push event
   # with suggestion to create MR
   def show_last_push_widget?(event)
@@ -127,13 +110,13 @@ module ApplicationHelper
     project = event.project
 
     # Skip if project repo is empty or MR disabled
-    return false unless project && !project.empty_repo? && project.merge_requests_enabled
+    return false unless project && !project.empty_repo? && project.feature_available?(:merge_requests, current_user)
 
     # Skip if user already created appropriate MR
     return false if project.merge_requests.where(source_branch: event.branch_name).opened.any?
 
     # Skip if user removed branch right after that
-    return false unless project.repository.branch_names.include?(event.branch_name)
+    return false unless project.repository.branch_exists?(event.branch_name)
 
     true
   end
@@ -180,11 +163,15 @@ module ApplicationHelper
   # `html_class` argument is provided.
   #
   # Returns an HTML-safe String
-  def time_ago_with_tooltip(time, placement: 'top', html_class: 'time_ago', skip_js: false)
+  def time_ago_with_tooltip(time, placement: 'top', html_class: '', skip_js: false, short_format: false)
+    css_classes = short_format ? 'js-short-timeago' : 'js-timeago'
+    css_classes << " #{html_class}" unless html_class.blank?
+    css_classes << ' js-timeago-pending' unless skip_js
+
     element = content_tag :time, time.to_s,
-      class: "#{html_class} js-timeago #{"js-timeago-pending" unless skip_js}",
+      class: css_classes,
       datetime: time.to_time.getutc.iso8601,
-      title: time.in_time_zone.to_s(:medium),
+      title: time.to_time.in_time_zone.to_s(:medium),
       data: { toggle: 'tooltip', placement: placement, container: 'body' }
 
     unless skip_js
@@ -214,7 +201,7 @@ module ApplicationHelper
 
   def render_markup(file_name, file_content)
     if gitlab_markdown?(file_name)
-      Haml::Helpers.preserve(markdown(file_content))
+      Hamlit::RailsHelpers.preserve(markdown(file_content))
     elsif asciidoc?(file_name)
       asciidoc(file_content)
     elsif plain?(file_name)
@@ -254,15 +241,16 @@ module ApplicationHelper
 
   def page_filter_path(options = {})
     without = options.delete(:without)
+    add_label = options.delete(:label)
 
     exist_opts = {
       state: params[:state],
       scope: params[:scope],
-      label_name: params[:label_name],
       milestone_title: params[:milestone_title],
       assignee_id: params[:assignee_id],
       author_id: params[:author_id],
-      sort: params[:sort],
+      search: params[:search],
+      label_name: params[:label_name]
     }
 
     options = exist_opts.merge(options)
@@ -273,9 +261,11 @@ module ApplicationHelper
       end
     end
 
-    path = request.path
-    path << "?#{options.to_param}"
-    path
+    params = options.compact
+
+    params.delete(:label_name) unless add_label
+
+    "#{request.path}?#{params.to_param}"
   end
 
   def outdated_browser?
@@ -290,33 +280,22 @@ module ApplicationHelper
     end
   end
 
-  def state_filters_text_for(entity, project)
-    titles = {
-      opened: "Open"
-    }
-
-    entity_title = titles[entity] || entity.to_s.humanize
-
-    count =
-      if project.nil?
-        nil
-      elsif current_controller?(:issues)
-        project.issues.visible_to_user(current_user).send(entity).count
-      elsif current_controller?(:merge_requests)
-        project.merge_requests.send(entity).count
-      end
-
-    html = content_tag :span, entity_title
-
-    if count.present?
-      html += " "
-      html += content_tag :span, number_with_delimiter(count), class: 'badge'
-    end
-
-    html.html_safe
-  end
-
   def truncate_first_line(message, length = 50)
     truncate(message.each_line.first.chomp, length: length) if message
+  end
+
+  # While similarly named to Rails's `link_to_if`, this method behaves quite differently.
+  # If `condition` is truthy, a link will be returned with the result of the block
+  # as its body. If `condition` is falsy, only the result of the block will be returned.
+  def conditional_link_to(condition, options, html_options = {}, &block)
+    if condition
+      link_to options, html_options, &block
+    else
+      capture(&block)
+    end
+  end
+
+  def page_class
+    "issue-boards-page" if current_controller?(:boards)
   end
 end

@@ -9,6 +9,10 @@
       margin-top: -2px;
       float: right;
     }
+
+    .dropdown-menu-toggle {
+      line-height: 20px;
+    }
   }
 
   .panel-body {
@@ -18,5 +22,10 @@
       margin: -$gl-padding;
       margin-top: $gl-padding;
     }
+  }
+
+  .panel-title {
+    font-size: inherit;
+    line-height: inherit;
   }
 }

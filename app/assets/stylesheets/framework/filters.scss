@@ -1,9 +1,13 @@
 .filter-item {
   margin-right: 6px;
   vertical-align: top;
+
+  &.reset-filters {
+    padding: 7px;
+  }
 }
 
-@media (min-width: $screen-sm-min)  {
+@media (min-width: $screen-sm-min) {
   .issues-filters,
   .issues_bulk_update {
     .dropdown-menu-toggle {
@@ -15,7 +19,7 @@
 @media (max-width: $screen-xs-max) {
   .filter-item {
     display: block;
-    margin: 0 0 10px 0;
+    margin: 0 0 10px;
   }
 }
 

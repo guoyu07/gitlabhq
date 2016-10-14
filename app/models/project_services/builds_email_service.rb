@@ -1,29 +1,8 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#  build_events          :boolean          default(FALSE), not null
-#
-
 class BuildsEmailService < Service
   prop_accessor :recipients
   boolean_accessor :add_pusher
   boolean_accessor :notify_only_broken_builds
-  validates :recipients, presence: true, if: :activated?
+  validates :recipients, presence: true, if: ->(s) { s.activated? && !s.add_pusher? }
 
   def initialize_properties
     if properties.nil?
@@ -50,14 +29,29 @@ class BuildsEmailService < Service
 
   def execute(push_data)
     return unless supported_events.include?(push_data[:object_kind])
+    return unless should_build_be_notified?(push_data)
 
-    if should_build_be_notified?(push_data)
+    recipients = all_recipients(push_data)
+
+    if recipients.any?
       BuildEmailWorker.perform_async(
         push_data[:build_id],
-        all_recipients(push_data),
-        push_data,
+        recipients,
+        push_data
       )
     end
+  end
+
+  def can_test?
+    project.builds.count > 0
+  end
+
+  def disabled_title
+    "Please setup a build on your repository."
+  end
+
+  def test_data(project = nil, user = nil)
+    Gitlab::DataBuilder::Build.build(project.builds.last)
   end
 
   def fields
@@ -66,6 +60,20 @@ class BuildsEmailService < Service
       { type: 'checkbox', name: 'add_pusher', label: 'Add pusher to recipients list' },
       { type: 'checkbox', name: 'notify_only_broken_builds' },
     ]
+  end
+
+  def test(data)
+    begin
+      # bypass build status verification when testing
+      data[:build_status] = "failed"
+      data[:build_allow_failure] = false
+
+      result = execute(data)
+    rescue StandardError => error
+      return { success: false, result: error }
+    end
+
+    { success: true, result: result }
   end
 
   def should_build_be_notified?(data)
@@ -84,10 +92,14 @@ class BuildsEmailService < Service
   end
 
   def all_recipients(data)
-    all_recipients = recipients.split(',')
+    all_recipients = []
+
+    unless recipients.blank?
+      all_recipients += recipients.split(',').compact.reject(&:blank?)
+    end
 
     if add_pusher? && data[:user][:email]
-      all_recipients << "#{data[:user][:email]}"
+      all_recipients << data[:user][:email]
     end
 
     all_recipients

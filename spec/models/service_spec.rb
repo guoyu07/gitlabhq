@@ -1,28 +1,6 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#  build_events          :boolean          default(FALSE), not null
-#
-
 require 'spec_helper'
 
 describe Service, models: true do
-
   describe "Associations" do
     it { is_expected.to belong_to :project }
     it { is_expected.to have_one :service_hook }
@@ -44,11 +22,11 @@ describe Service, models: true do
         @testable = @service.can_test?
       end
 
-      describe :can_test do
+      describe '#can_test?' do
         it { expect(@testable).to eq(true) }
       end
 
-      describe :test do
+      describe '#test' do
         let(:data) { 'test' }
 
         it 'test runs execute' do
@@ -67,7 +45,7 @@ describe Service, models: true do
         @testable = @service.can_test?
       end
 
-      describe :can_test do
+      describe '#can_test?' do
         it { expect(@testable).to eq(true) }
       end
     end
@@ -87,13 +65,13 @@ describe Service, models: true do
       end
       let(:project) { create(:project) }
 
-      describe 'should be prefilled for projects pushover service' do
+      describe 'is prefilled for projects pushover service' do
         before do
           service_template
           project.build_missing_services
         end
 
-        it "should have all fields prefilled" do
+        it "has all fields prefilled" do
           service = project.pushover_service
           expect(service.template).to eq(false)
           expect(service.device).to eq('MyDevice')
@@ -197,7 +175,6 @@ describe Service, models: true do
       )
     end
 
-
     it "returns nil when the property has not been assigned a new value" do
       service.username = "key_changed"
       expect(service.bamboo_url_was).to be_nil
@@ -223,6 +200,56 @@ describe Service, models: true do
       service.bamboo_url = 'http://example.com'
       service.save
       expect(service.bamboo_url_was).to be_nil
+    end
+  end
+
+  describe 'initialize service with no properties' do
+    let(:service) do
+      GitlabIssueTrackerService.create(
+        project: create(:project),
+        title: 'random title'
+      )
+    end
+
+    it 'does not raise error' do
+      expect { service }.not_to raise_error
+    end
+
+    it 'creates the properties' do
+      expect(service.properties).to eq({ "title" => "random title" })
+    end
+  end
+
+  describe "callbacks" do
+    let(:project) { create(:project) }
+    let!(:service) do
+      RedmineService.new(
+        project: project,
+        active: true,
+        properties: {
+          project_url: 'http://redmine/projects/project_name_in_redmine',
+          issues_url: "http://redmine/#{project.id}/project_name_in_redmine/:id",
+          new_issue_url: 'http://redmine/projects/project_name_in_redmine/issues/new'
+        }
+      )
+    end
+
+    describe "on create" do
+      it "updates the has_external_issue_tracker boolean" do
+        expect do
+          service.save!
+        end.to change { service.project.has_external_issue_tracker }.from(false).to(true)
+      end
+    end
+
+    describe "on update" do
+      it "updates the has_external_issue_tracker boolean" do
+        service.save!
+
+        expect do
+          service.update_attributes(active: false)
+        end.to change { service.project.has_external_issue_tracker }.from(true).to(false)
+      end
     end
   end
 end

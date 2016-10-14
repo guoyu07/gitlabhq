@@ -1,12 +1,12 @@
 - page_title 'Preferences'
-- header_title page_title, profile_preferences_path
+= render 'profiles/head'
 
 = form_for @user, url: profile_preferences_path, remote: true, method: :put, html: {class: 'row prepend-top-default js-preferences-form'} do |f|
   .col-lg-3.profile-settings-sidebar
     %h4.prepend-top-0
       Application theme
     %p
-      This setting allows you to customize the appearance of the site, ex. sidebar.
+      This setting allows you to customize the appearance of the site, e.g. the sidebar.
   .col-lg-9.application-theme
     - Gitlab::Themes.each do |theme|
       = label_tag do
@@ -43,12 +43,12 @@
     .form-group
       = f.label :dashboard, class: 'label-light' do
         Default Dashboard
-        = link_to('(?)', help_page_path('profile', 'preferences') + '#default-dashboard', target: '_blank')
+        = link_to('(?)', help_page_path('profile/preferences') + '#default-dashboard', target: '_blank')
       = f.select :dashboard, dashboard_choices, {}, class: 'form-control'
     .form-group
       = f.label :project_view, class: 'label-light' do
         Project view
-        = link_to('(?)', help_page_path('profile', 'preferences') + '#default-project-view', target: '_blank')
+        = link_to('(?)', help_page_path('profile/preferences') + '#default-project-view', target: '_blank')
       = f.select :project_view, project_view_choices, {}, class: 'form-control'
       .help-block
         Choose what content you want to see on a project's home page.

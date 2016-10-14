@@ -1,18 +1,3 @@
-# == Schema Information
-#
-# Table name: keys
-#
-#  id          :integer          not null, primary key
-#  user_id     :integer
-#  created_at  :datetime
-#  updated_at  :datetime
-#  key         :text
-#  title       :string(255)
-#  type        :string(255)
-#  fingerprint :string(255)
-#  public      :boolean          default(FALSE), not null
-#
-
 require 'digest/md5'
 
 class Key < ActiveRecord::Base
@@ -24,7 +9,7 @@ class Key < ActiveRecord::Base
   before_validation :strip_white_space, :generate_fingerprint
 
   validates :title, presence: true, length: { within: 0..255 }
-  validates :key, presence: true, length: { within: 0..5000 }, format: { with: /\A(ssh|ecdsa)-.*\Z/ }, uniqueness: true
+  validates :key, presence: true, length: { within: 0..5000 }, format: { with: /\A(ssh|ecdsa)-.*\Z/ }
   validates :key, format: { without: /\n|\r/, message: 'should be a single line' }
   validates :fingerprint, uniqueness: true, presence: { message: 'cannot be generated' }
 
@@ -41,8 +26,9 @@ class Key < ActiveRecord::Base
   end
 
   def publishable_key
-    #Removes anything beyond the keytype and key itself
-    self.key.split[0..1].join(' ')
+    # Strip out the keys comment so we don't leak email addresses
+    # Replace with simple ident of user_name (hostname)
+    self.key.split[0..1].push("#{self.user_name} (#{Gitlab.config.gitlab.host})").join(' ')
   end
 
   # projects that has this key

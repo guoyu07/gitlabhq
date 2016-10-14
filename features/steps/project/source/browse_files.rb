@@ -44,7 +44,7 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   end
 
   step 'I should see its content with new lines preserved at end of file' do
-    expect(evaluate_script('blob.editor.getValue()')).to eq "Sample\n\n\n"
+    expect(evaluate_script('ace.edit("editor").getValue()')).to eq "Sample\n\n\n"
   end
 
   step 'I click link "Raw"' do
@@ -65,15 +65,16 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
 
   step 'I can edit code' do
     set_new_content
-    expect(evaluate_script('blob.editor.getValue()')).to eq new_gitignore_content
+    expect(evaluate_script('ace.edit("editor").getValue()')).to eq new_gitignore_content
   end
 
   step 'I edit code' do
+    expect(page).to have_selector('.file-editor')
     set_new_content
   end
 
   step 'I edit code with new lines at end of file' do
-    execute_script('blob.editor.setValue("Sample\n\n\n")')
+    execute_script('ace.edit("editor").setValue("Sample\n\n\n")')
   end
 
   step 'I fill the new file name' do
@@ -104,6 +105,10 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
     click_button 'Commit Changes'
   end
 
+  step 'I click on "Changes" tab' do
+    click_link 'Changes'
+  end
+
   step 'I click on "Create directory"' do
     click_button 'Create directory'
   end
@@ -131,6 +136,7 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   step 'I click on "New file" link in repo' do
     find('.add-to-tree').click
     click_link 'New file'
+    expect(page).to have_selector('.file-editor')
   end
 
   step 'I click on "Upload file" link in repo' do
@@ -202,8 +208,8 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   end
 
   step 'I see Browse dir link' do
-    expect(page).to have_link 'Browse Directory »'
-    expect(page).not_to have_link 'Browse Code »'
+    expect(page).to have_link 'Browse Directory'
+    expect(page).not_to have_link 'Browse Code'
   end
 
   step 'I click on readme file' do
@@ -213,14 +219,13 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   end
 
   step 'I see Browse file link' do
-    expect(page).to have_link 'Browse File »'
-    expect(page).not_to have_link 'Browse Files »'
+    expect(page).to have_link 'Browse File'
+    expect(page).not_to have_link 'Browse Files'
   end
 
   step 'I see Browse code link' do
-    expect(page).to have_link 'Browse Files »'
-    expect(page).not_to have_link 'Browse File »'
-    expect(page).not_to have_link 'Browse Directory »'
+    expect(page).to have_link 'Browse Files'
+    expect(page).not_to have_link 'Browse Directory'
   end
 
   step 'I click on Permalink' do
@@ -283,23 +288,31 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
     click_link 'Create empty bare repository'
   end
 
-  step 'I click on "add a file" link' do
-    click_link 'adding README'
+  step 'I click on "README" link' do
+    click_link 'README'
 
     # Remove pre-receive hook so we can push without auth
     FileUtils.rm_f(File.join(@project.repository.path, 'hooks', 'pre-receive'))
   end
 
   step "I switch ref to 'test'" do
-    select "'test'", from: 'ref'
+    first('.js-project-refs-dropdown').click
+
+    page.within '.project-refs-form' do
+      click_link "'test'"
+    end
   end
 
   step "I switch ref to fix" do
-    select "fix", from: 'ref'
+    first('.js-project-refs-dropdown').click
+
+    page.within '.project-refs-form' do
+      click_link 'fix'
+    end
   end
 
   step "I see the ref 'test' has been selected" do
-    expect(page).to have_selector '.select2-chosen', text: "'test'"
+    expect(page).to have_selector '.dropdown-toggle-text', text: "'test'"
   end
 
   step "I visit the 'test' tree" do
@@ -338,13 +351,15 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   end
 
   step 'I should see buttons for allowed commands' do
-    expect(page).to have_content 'Raw'
-    expect(page).to have_content 'History'
-    expect(page).to have_content 'Permalink'
-    expect(page).not_to have_content 'Edit'
-    expect(page).not_to have_content 'Blame'
-    expect(page).to have_content 'Delete'
-    expect(page).to have_content 'Replace'
+    page.within '.content' do
+      expect(page).to have_content 'Raw'
+      expect(page).to have_content 'History'
+      expect(page).to have_content 'Permalink'
+      expect(page).not_to have_content 'Edit'
+      expect(page).not_to have_content 'Blame'
+      expect(page).to have_content 'Delete'
+      expect(page).to have_content 'Replace'
+    end
   end
 
   step 'I should see a notice about a new fork having been created' do
@@ -367,7 +382,7 @@ class Spinach::Features::ProjectSourceBrowseFiles < Spinach::FeatureSteps
   private
 
   def set_new_content
-    execute_script("blob.editor.setValue('#{new_gitignore_content}')")
+    execute_script("ace.edit('editor').setValue('#{new_gitignore_content}')")
   end
 
   # Content of the gitignore file on the seed repository.

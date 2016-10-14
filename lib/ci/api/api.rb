@@ -1,9 +1,7 @@
-Dir["#{Rails.root}/lib/ci/api/*.rb"].each {|file| require file}
-
 module Ci
   module API
     class API < Grape::API
-      include APIGuard
+      include ::API::APIGuard
       version 'v1', using: :path
 
       rescue_from ActiveRecord::RecordNotFound do
@@ -11,27 +9,21 @@ module Ci
       end
 
       rescue_from :all do |exception|
-        # lifted from https://github.com/rails/rails/blob/master/actionpack/lib/action_dispatch/middleware/debug_exceptions.rb#L60
-        # why is this not wrapped in something reusable?
-        trace = exception.backtrace
-
-        message = "\n#{exception.class} (#{exception.message}):\n"
-        message << exception.annoted_source_code.to_s if exception.respond_to?(:annoted_source_code)
-        message << "  " << trace.join("\n  ")
-
-        API.logger.add Logger::FATAL, message
-        rack_response({ 'message' => '500 Internal Server Error' }, 500)
+        handle_api_exception(exception)
       end
 
+      content_type :txt,  'text/plain'
+      content_type :json, 'application/json'
       format :json
 
+      helpers ::SentryHelper
       helpers ::Ci::API::Helpers
       helpers ::API::Helpers
       helpers Gitlab::CurrentSettings
 
-      mount Builds
-      mount Runners
-      mount Triggers
+      mount ::Ci::API::Builds
+      mount ::Ci::API::Runners
+      mount ::Ci::API::Triggers
     end
   end
 end

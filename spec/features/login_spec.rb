@@ -28,17 +28,17 @@ feature 'Login', feature: true do
   end
 
   describe 'with two-factor authentication' do
+    def enter_code(code)
+      fill_in 'Two-Factor Authentication code', with: code
+      click_button 'Verify code'
+    end
+
     context 'with valid username/password' do
       let(:user) { create(:user, :two_factor) }
 
       before do
-        login_with(user)
-        expect(page).to have_content('Two-factor Authentication')
-      end
-
-      def enter_code(code)
-        fill_in 'Two-factor authentication code', with: code
-        click_button 'Verify code'
+        login_with(user, remember: true)
+        expect(page).to have_content('Two-Factor Authentication')
       end
 
       it 'does not show a "You are already signed in." error message' do
@@ -50,6 +50,12 @@ feature 'Login', feature: true do
         it 'allows login with valid code' do
           enter_code(user.current_otp)
           expect(current_path).to eq root_path
+        end
+
+        it 'persists remember_me value via hidden field' do
+          field = first('input#user_remember_me', visible: false)
+
+          expect(field.value).to eq '1'
         end
 
         it 'blocks login with invalid code' do
@@ -102,6 +108,39 @@ feature 'Login', feature: true do
         end
       end
     end
+
+    context 'logging in via OAuth' do
+      def saml_config
+        OpenStruct.new(name: 'saml', label: 'saml', args: {
+          assertion_consumer_service_url: 'https://localhost:3443/users/auth/saml/callback',
+          idp_cert_fingerprint: '26:43:2C:47:AF:F0:6B:D0:07:9C:AD:A3:74:FE:5D:94:5F:4E:9E:52',
+          idp_sso_target_url: 'https://idp.example.com/sso/saml',
+          issuer: 'https://localhost:3443/',
+          name_identifier_format: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient'
+        })
+      end
+
+      def stub_omniauth_config(messages)
+        Rails.application.env_config['devise.mapping'] = Devise.mappings[:user]
+        Rails.application.routes.disable_clear_and_finalize = true
+        Rails.application.routes.draw do
+          post '/users/auth/saml' => 'omniauth_callbacks#saml'
+        end
+        allow(Gitlab::OAuth::Provider).to receive_messages(providers: [:saml], config_for: saml_config)
+        allow(Gitlab.config.omniauth).to receive_messages(messages)
+        expect_any_instance_of(Object).to receive(:omniauth_authorize_path).with(:user, "saml").and_return('/users/auth/saml')
+      end
+
+      it 'shows 2FA prompt after OAuth login' do
+        stub_omniauth_config(enabled: true, auto_link_saml_user: true, allow_single_sign_on: ['saml'], providers: [saml_config])
+        user = create(:omniauth_user, :two_factor, extern_uid: 'my-uid', provider: 'saml')
+        login_via('saml', user, 'my-uid')
+
+        expect(page).to have_content('Two-Factor Authentication')
+        enter_code(user.current_otp)
+        expect(current_path).to eq root_path
+      end
+    end
   end
 
   describe 'without two-factor authentication' do
@@ -121,7 +160,7 @@ feature 'Login', feature: true do
       user = create(:user, password: 'not-the-default')
 
       login_with(user)
-      expect(page).to have_content('Invalid login or password.')
+      expect(page).to have_content('Invalid Login or password.')
     end
   end
 
@@ -137,12 +176,12 @@ feature 'Login', feature: true do
 
       context 'within the grace period' do
         it 'redirects to two-factor configuration page' do
-          expect(current_path).to eq new_profile_two_factor_auth_path
-          expect(page).to have_content('You must enable Two-factor Authentication for your account before')
+          expect(current_path).to eq profile_two_factor_auth_path
+          expect(page).to have_content('You must enable Two-Factor Authentication for your account before')
         end
 
-        it 'disallows skipping two-factor configuration' do
-          expect(current_path).to eq new_profile_two_factor_auth_path
+        it 'allows skipping two-factor configuration', js: true do
+          expect(current_path).to eq profile_two_factor_auth_path
 
           click_link 'Configure it later'
           expect(current_path).to eq root_path
@@ -153,26 +192,26 @@ feature 'Login', feature: true do
         let(:user) { create(:user, otp_grace_period_started_at: 9999.hours.ago) }
 
         it 'redirects to two-factor configuration page' do
-          expect(current_path).to eq new_profile_two_factor_auth_path
-          expect(page).to have_content('You must enable Two-factor Authentication for your account.')
+          expect(current_path).to eq profile_two_factor_auth_path
+          expect(page).to have_content('You must enable Two-Factor Authentication for your account.')
         end
 
-        it 'disallows skipping two-factor configuration' do
-          expect(current_path).to eq new_profile_two_factor_auth_path
+        it 'disallows skipping two-factor configuration', js: true do
+          expect(current_path).to eq profile_two_factor_auth_path
           expect(page).not_to have_link('Configure it later')
         end
       end
     end
 
-    context 'without grace pariod defined' do
+    context 'without grace period defined' do
       before(:each) do
         stub_application_setting(two_factor_grace_period: 0)
         login_with(user)
       end
 
       it 'redirects to two-factor configuration page' do
-        expect(current_path).to eq new_profile_two_factor_auth_path
-        expect(page).to have_content('You must enable Two-factor Authentication for your account.')
+        expect(current_path).to eq profile_two_factor_auth_path
+        expect(page).to have_content('You must enable Two-Factor Authentication for your account.')
       end
     end
   end

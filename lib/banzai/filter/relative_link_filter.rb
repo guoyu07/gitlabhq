@@ -1,4 +1,3 @@
-require 'html/pipeline/filter'
 require 'uri'
 
 module Banzai
@@ -15,11 +14,13 @@ module Banzai
       def call
         return doc unless linkable_files?
 
+        @uri_types = {}
+
         doc.search('a:not(.gfm)').each do |el|
           process_link_attr el.attribute('href')
         end
 
-        doc.search('img').each do |el|
+        doc.css('img, video').each do |el|
           process_link_attr el.attribute('src')
         end
 
@@ -34,6 +35,7 @@ module Banzai
 
       def process_link_attr(html_attr)
         return if html_attr.blank?
+        return if html_attr.value.start_with?('//')
 
         uri = URI(html_attr.value)
         if uri.relative? && uri.path.present?
@@ -49,8 +51,8 @@ module Banzai
         uri.path = [
           relative_url_root,
           context[:project].path_with_namespace,
-          path_type(file_path),
-          ref || context[:project].default_branch,  # if no ref exists, point to the default branch
+          uri_type(file_path),
+          ref,
           file_path
         ].compact.join('/').squeeze('/').chomp('/')
 
@@ -86,9 +88,12 @@ module Banzai
       def build_relative_path(path, request_path)
         return request_path if path.empty?
         return path unless request_path
+        return path[1..-1] if path.start_with?('/')
 
         parts = request_path.split('/')
-        parts.pop if path_type(request_path) != 'tree'
+        parts.pop if uri_type(request_path) != :tree
+
+        path.sub!(%r{\A\./}, '')
 
         while path.start_with?('../')
           parts.pop
@@ -99,45 +104,19 @@ module Banzai
       end
 
       def file_exists?(path)
-        return false if path.nil?
-        repository.blob_at(current_sha, path).present? ||
-          repository.tree(current_sha, path).entries.any?
+        path.present? && !!uri_type(path)
       end
 
-      # Get the type of the given path
-      #
-      # path - String path to check
-      #
-      # Examples:
-      #
-      #   path_type('doc/README.md') # => 'blob'
-      #   path_type('doc/logo.png')  # => 'raw'
-      #   path_type('doc/api')       # => 'tree'
-      #
-      # Returns a String
-      def path_type(path)
-        unescaped_path = Addressable::URI.unescape(path)
+      def uri_type(path)
+        @uri_types[path] ||= begin
+          unescaped_path = Addressable::URI.unescape(path)
 
-        if tree?(unescaped_path)
-          'tree'
-        elsif image?(unescaped_path)
-          'raw'
-        else
-          'blob'
+          current_commit.uri_type(unescaped_path)
         end
       end
 
-      def tree?(path)
-        repository.tree(current_sha, path).entries.any?
-      end
-
-      def image?(path)
-        repository.blob_at(current_sha, path).try(:image?)
-      end
-
-      def current_sha
-        context[:commit].try(:id) ||
-          ref ? repository.commit(ref).try(:sha) : repository.head_commit.sha
+      def current_commit
+        @current_commit ||= context[:commit] || repository.commit(ref)
       end
 
       def relative_url_root
@@ -145,11 +124,11 @@ module Banzai
       end
 
       def ref
-        context[:ref]
+        context[:ref] || context[:project].default_branch
       end
 
       def repository
-        context[:project].try(:repository)
+        @repository ||= context[:project].try(:repository)
       end
     end
   end

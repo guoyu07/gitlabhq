@@ -1,4 +1,10 @@
 /* https://github.com/aahan/pygments-github-style */
+
+@mixin matchLine {
+  color: $black-transparent;
+  background-color: $match-line;
+}
+
 .code.white {
   // Line numbers
   .line-numbers, .diff-line-num {
@@ -6,12 +12,12 @@
   }
 
   .diff-line-num, .diff-line-num a {
-    color: rgba(0, 0, 0, 0.3);
+    color: $black-transparent;
   }
 
   // Code itself
   pre.code, .diff-line-num {
-    border-color: $border-color;
+    border-color: $table-border-gray;
   }
 
   &, pre.code, .line_holder .line_content {
@@ -21,38 +27,51 @@
 
   // Diff line
   .line_holder {
+
+    &.match .line_content {
+      @include matchLine;
+    }
+
     .diff-line-num {
       &.old {
-        background: #fdd;
-        border-color: #f1c0c0;
+        background-color: $line-number-old;
+        border-color: $line-removed-dark;
       }
 
       &.new {
-        background: #dbffdb;
-        border-color: #c1e9c1;
+        background-color: $line-number-new;
+        border-color: $line-added-dark;
+      }
+
+      &.hll:not(.empty-cell) {
+        background-color: $line-number-select;
+        border-color: $line-select-yellow-dark;
       }
     }
 
     .line_content {
       &.old {
-        background: #ffecec;
+        background-color: $line-removed;
 
         span.idiff {
-          background-color: #f8cbcb;
+          background-color: $line-removed-dark;
         }
       }
 
       &.new {
-        background: #eaffea;
+        background-color: $line-added;
 
         span.idiff {
-          background-color: #a6f3a6;
+          background-color: $line-added-dark;
         }
       }
 
       &.match {
-        color: rgba(0, 0, 0, 0.3);
-        background: #fafafa;
+        @include matchLine;
+      }
+
+      &.hll:not(.empty-cell) {
+        background-color: $line-select-yellow;
       }
     }
   }

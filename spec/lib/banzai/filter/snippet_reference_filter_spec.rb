@@ -39,7 +39,7 @@ describe Banzai::Filter::SnippetReferenceFilter, lib: true do
 
     it 'includes a title attribute' do
       doc = reference_filter("Snippet #{reference}")
-      expect(doc.css('a').first.attr('title')).to eq "Snippet: #{snippet.title}"
+      expect(doc.css('a').first.attr('title')).to eq snippet.title
     end
 
     it 'escapes the title attribute' do
@@ -51,7 +51,7 @@ describe Banzai::Filter::SnippetReferenceFilter, lib: true do
 
     it 'includes default classes' do
       doc = reference_filter("Snippet #{reference}")
-      expect(doc.css('a').first.attr('class')).to eq 'gfm gfm-snippet'
+      expect(doc.css('a').first.attr('class')).to eq 'gfm gfm-snippet has-tooltip'
     end
 
     it 'includes a data-project attribute' do
@@ -76,11 +76,6 @@ describe Banzai::Filter::SnippetReferenceFilter, lib: true do
 
       expect(link).not_to match %r(https?://)
       expect(link).to eq urls.namespace_project_snippet_url(project.namespace, project, snippet, only_path: true)
-    end
-
-    it 'adds to the results hash' do
-      result = reference_pipeline_result("Snippet #{reference}")
-      expect(result[:references][:snippet]).to eq [snippet]
     end
   end
 
@@ -107,11 +102,6 @@ describe Banzai::Filter::SnippetReferenceFilter, lib: true do
 
       expect(reference_filter(act).to_html).to eq exp
     end
-
-    it 'adds to the results hash' do
-      result = reference_pipeline_result("Snippet #{reference}")
-      expect(result[:references][:snippet]).to eq [snippet]
-    end
   end
 
   context 'cross-project URL reference' do
@@ -136,11 +126,6 @@ describe Banzai::Filter::SnippetReferenceFilter, lib: true do
       act = "See #{invalidate_reference(reference)}"
 
       expect(reference_filter(act).to_html).to match(/<a.+>#{Regexp.escape(invalidate_reference(reference))}<\/a>/)
-    end
-
-    it 'adds to the results hash' do
-      result = reference_pipeline_result("Snippet #{reference}")
-      expect(result[:references][:snippet]).to eq [snippet]
     end
   end
 end

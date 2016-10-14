@@ -1,12 +1,29 @@
 class Projects::BadgesController < Projects::ApplicationController
-  before_action :no_cache_headers
+  layout 'project_settings'
+  before_action :authorize_admin_project!, only: [:index]
+  before_action :no_cache_headers, except: [:index]
 
   def build
+    build_status = Gitlab::Badge::Build::Status
+      .new(project, params[:ref])
+
+    render_badge build_status
+  end
+
+  def coverage
+    coverage_report = Gitlab::Badge::Coverage::Report
+      .new(project, params[:ref], params[:job])
+
+    render_badge coverage_report
+  end
+
+  private
+
+  def render_badge(badge)
     respond_to do |format|
       format.html { render_404 }
       format.svg do
-        image = Ci::ImageForBuildService.new.execute(project, ref: params[:ref])
-        send_file(image.path, filename: image.name, disposition: 'inline', type: 'image/svg+xml')
+        render 'badge', locals: { badge: badge.template }
       end
     end
   end

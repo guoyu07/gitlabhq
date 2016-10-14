@@ -8,22 +8,35 @@ module SortingHelper
       sort_value_oldest_created => sort_title_oldest_created,
       sort_value_milestone_soon => sort_title_milestone_soon,
       sort_value_milestone_later => sort_title_milestone_later,
+      sort_value_due_date_soon => sort_title_due_date_soon,
+      sort_value_due_date_later => sort_title_due_date_later,
       sort_value_largest_repo => sort_title_largest_repo,
       sort_value_recently_signin => sort_title_recently_signin,
       sort_value_oldest_signin => sort_title_oldest_signin,
       sort_value_downvotes => sort_title_downvotes,
-      sort_value_upvotes => sort_title_upvotes
+      sort_value_upvotes => sort_title_upvotes,
+      sort_value_priority => sort_title_priority
     }
   end
 
   def projects_sort_options_hash
-    {
+    options = {
       sort_value_name => sort_title_name,
       sort_value_recently_updated => sort_title_recently_updated,
       sort_value_oldest_updated => sort_title_oldest_updated,
       sort_value_recently_created => sort_title_recently_created,
       sort_value_oldest_created => sort_title_oldest_created,
     }
+
+    if current_controller?('admin/projects')
+      options.merge!(sort_value_largest_repo => sort_title_largest_repo)
+    end
+
+    options
+  end
+
+  def sort_title_priority
+    'Priority'
   end
 
   def sort_title_oldest_updated
@@ -50,6 +63,14 @@ module SortingHelper
     'Milestone due later'
   end
 
+  def sort_title_due_date_soon
+    'Due soon'
+  end
+
+  def sort_title_due_date_later
+    'Due later'
+  end
+
   def sort_title_name
     'Name'
   end
@@ -74,6 +95,10 @@ module SortingHelper
     'Most popular'
   end
 
+  def sort_value_priority
+    'priority'
+  end
+
   def sort_value_oldest_updated
     'updated_asc'
   end
@@ -83,11 +108,11 @@ module SortingHelper
   end
 
   def sort_value_oldest_created
-    'id_asc'
+    'created_asc'
   end
 
   def sort_value_recently_created
-    'id_desc'
+    'created_desc'
   end
 
   def sort_value_milestone_soon
@@ -96,6 +121,14 @@ module SortingHelper
 
   def sort_value_milestone_later
     'milestone_due_desc'
+  end
+
+  def sort_value_due_date_soon
+    'due_date_asc'
+  end
+
+  def sort_value_due_date_later
+    'due_date_desc'
   end
 
   def sort_value_name

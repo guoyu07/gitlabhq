@@ -1,10 +1,7 @@
 module BlobHelper
-  def highlighter(blob_name, blob_content, nowrap: false)
-    Gitlab::Highlight.new(blob_name, blob_content, nowrap: nowrap)
-  end
-
-  def highlight(blob_name, blob_content, nowrap: false)
-    Gitlab::Highlight.highlight(blob_name, blob_content, nowrap: nowrap)
+  def highlight(blob_name, blob_content, repository: nil, plain: false)
+    highlighted = Gitlab::Highlight.highlight(blob_name, blob_content, plain: plain, repository: repository)
+    raw %(<pre class="code highlight"><code>#{highlighted}</code></pre>)
   end
 
   def no_highlight_files
@@ -14,22 +11,19 @@ module BlobHelper
   def edit_blob_link(project = @project, ref = @ref, path = @path, options = {})
     return unless current_user
 
-    blob = project.repository.blob_at(ref, path) rescue nil
+    blob = options.delete(:blob)
+    blob ||= project.repository.blob_at(ref, path) rescue nil
 
-    return unless blob && blob_text_viewable?(blob)
-
-    from_mr = options[:from_merge_request_id]
-    link_opts = {}
-    link_opts[:from_merge_request_id] = from_mr if from_mr
+    return unless blob
 
     edit_path = namespace_project_edit_blob_path(project.namespace, project,
                                      tree_join(ref, path),
-                                     link_opts)
+                                     options[:link_opts])
 
     if !on_top_of_branch?(project, ref)
-      button_tag "Edit", class: "btn btn-default disabled has-tooltip", title: "You can only edit files when you are on a branch", data: { container: 'body' }
+      button_tag "Edit", class: "btn disabled has-tooltip btn-file-option", title: "You can only edit files when you are on a branch", data: { container: 'body' }
     elsif can_edit_blob?(blob, project, ref)
-      link_to "Edit", edit_path, class: 'btn'
+      link_to "Edit", edit_path, class: 'btn btn-sm'
     elsif can?(current_user, :fork_project, project)
       continue_params = {
         to:     edit_path,
@@ -38,7 +32,7 @@ module BlobHelper
       }
       fork_path = namespace_project_forks_path(project.namespace, project, namespace_key: current_user.namespace.id, continue: continue_params)
 
-      link_to "Edit", fork_path, class: 'btn', method: :post
+      link_to "Edit", fork_path, class: 'btn btn-file-option', method: :post
     end
   end
 
@@ -116,7 +110,7 @@ module BlobHelper
   end
 
   def blob_text_viewable?(blob)
-    blob && blob.text? && !blob.lfs_pointer?
+    blob && blob.text? && !blob.lfs_pointer? && !blob.only_display_raw?
   end
 
   def blob_size(blob)
@@ -131,7 +125,7 @@ module BlobHelper
   # elements and attributes. Note that this whitelist is by no means complete
   # and may omit some elements.
   def sanitize_svg(blob)
-    blob.data = Loofah.scrub_fragment(blob.data, :strip).to_xml
+    blob.data = Gitlab::Sanitizers::SVG.clean(blob.data)
     blob
   end
 
@@ -172,5 +166,63 @@ module BlobHelper
 
     response.etag = @blob.id
     !stale
+  end
+
+  def licenses_for_select
+    return @licenses_for_select if defined?(@licenses_for_select)
+
+    licenses = Licensee::License.all
+
+    @licenses_for_select = {
+      Popular: licenses.select(&:featured).map { |license| { name: license.name, id: license.key } },
+      Other: licenses.reject(&:featured).map { |license| { name: license.name, id: license.key } }
+    }
+  end
+
+  def selected_template(issuable)
+    templates = issuable_templates(issuable)
+    params[:issuable_template] if templates.include?(params[:issuable_template])
+  end
+
+  def can_add_template?(issuable)
+    names = issuable_templates(issuable)
+    names.empty? && can?(current_user, :push_code, @project) && !@project.private?
+  end
+
+  def merge_request_template_names
+    @merge_request_templates ||= Gitlab::Template::MergeRequestTemplate.dropdown_names(ref_project)
+  end
+
+  def issue_template_names
+    @issue_templates ||= Gitlab::Template::IssueTemplate.dropdown_names(ref_project)
+  end
+
+  def issuable_templates(issuable)
+    @issuable_templates ||=
+      if issuable.is_a?(Issue)
+        issue_template_names
+      elsif issuable.is_a?(MergeRequest)
+        merge_request_template_names
+      end
+  end
+
+  def ref_project
+    @ref_project ||= @target_project || @project
+  end
+
+  def gitignore_names
+    @gitignore_names ||= Gitlab::Template::GitignoreTemplate.dropdown_names
+  end
+
+  def gitlab_ci_ymls
+    @gitlab_ci_ymls ||= Gitlab::Template::GitlabCiYmlTemplate.dropdown_names
+  end
+
+  def blob_editor_paths
+    {
+      'relative-url-root' => Rails.application.config.relative_url_root,
+      'assets-prefix' => Gitlab::Application.config.assets.prefix,
+      'blob-language' => @blob && @blob.language.try(:ace_mode)
+    }
   end
 end

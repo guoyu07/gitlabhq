@@ -17,6 +17,7 @@ class GitPushService < BaseService
   #  6. Checks if the project's main language has changed
   #
   def execute
+    @project.repository.after_create if @project.empty_repo?
     @project.repository.after_push_commit(branch_name, params[:newrev])
 
     if push_remove_branch?
@@ -42,10 +43,12 @@ class GitPushService < BaseService
       # Collect data for this git push
       @push_commits = @project.repository.commits_between(params[:oldrev], params[:newrev])
       process_commit_messages
+
+      # Update the bare repositories info/attributes file using the contents of the default branches
+      # .gitattributes file
+      update_gitattributes if is_default_branch?
     end
-    # Checks if the main language has changed in the project and if so
-    # it updates it accordingly
-    update_main_language
+
     # Update merge requests that may be affected by this push. A new branch
     # could cause the last commit of a merge request to change.
     update_merge_requests
@@ -53,14 +56,8 @@ class GitPushService < BaseService
     perform_housekeeping
   end
 
-  def update_main_language
-    current_language = @project.repository.main_language
-
-    unless current_language == @project.main_language
-      return @project.update_attributes(main_language: current_language)
-    end
-
-    true
+  def update_gitattributes
+    @project.repository.copy_gitattributes(params[:ref])
   end
 
   protected
@@ -69,9 +66,10 @@ class GitPushService < BaseService
     @project.update_merge_requests(params[:oldrev], params[:newrev], params[:ref], current_user)
 
     EventCreateService.new.push(@project, current_user, build_push_data)
+    SystemHooksService.new.execute_hooks(build_push_data_system_hook.dup, :push_hooks)
     @project.execute_hooks(build_push_data.dup, :push_hooks)
     @project.execute_services(build_push_data.dup, :push_hooks)
-    CreateCommitBuildsService.new.execute(@project, current_user, build_push_data)
+    Ci::CreatePipelineService.new(project, current_user, build_push_data).execute
     ProjectCacheWorker.perform_async(@project.id)
   end
 
@@ -89,9 +87,19 @@ class GitPushService < BaseService
     project.change_head(branch_name)
 
     # Set protection on the default branch if configured
-    if current_application_settings.default_branch_protection != PROTECTION_NONE
-      developers_can_push = current_application_settings.default_branch_protection == PROTECTION_DEV_CAN_PUSH ? true : false
-      @project.protected_branches.create({ name: @project.default_branch, developers_can_push: developers_can_push })
+    if current_application_settings.default_branch_protection != PROTECTION_NONE && !@project.protected_branch?(@project.default_branch)
+
+      params = {
+        name: @project.default_branch,
+        push_access_levels_attributes: [{
+          access_level: current_application_settings.default_branch_protection == PROTECTION_DEV_CAN_PUSH ? Gitlab::Access::DEVELOPER : Gitlab::Access::MASTER
+        }],
+        merge_access_levels_attributes: [{
+          access_level: current_application_settings.default_branch_protection == PROTECTION_DEV_CAN_MERGE ? Gitlab::Access::DEVELOPER : Gitlab::Access::MASTER
+        }]
+      }
+
+      ProtectedBranches::CreateService.new(@project, current_user, params).execute
     end
   end
 
@@ -126,12 +134,28 @@ class GitPushService < BaseService
       end
 
       commit.create_cross_references!(authors[commit], closed_issues)
+      update_issue_metrics(commit, authors)
     end
   end
 
   def build_push_data
-    @push_data ||= Gitlab::PushDataBuilder.
-      build(@project, current_user, params[:oldrev], params[:newrev], params[:ref], push_commits)
+    @push_data ||= Gitlab::DataBuilder::Push.build(
+      @project,
+      current_user,
+      params[:oldrev],
+      params[:newrev],
+      params[:ref],
+      push_commits)
+  end
+
+  def build_push_data_system_hook
+    @push_data_system ||= Gitlab::DataBuilder::Push.build(
+      @project,
+      current_user,
+      params[:oldrev],
+      params[:newrev],
+      params[:ref],
+      [])
   end
 
   def push_to_existing_branch?
@@ -162,5 +186,12 @@ class GitPushService < BaseService
 
   def branch_name
     @branch_name ||= Gitlab::Git.ref_name(params[:ref])
+  end
+
+  def update_issue_metrics(commit, authors)
+    mentioned_issues = commit.all_references(authors[commit]).issues
+
+    Issue::Metrics.where(issue_id: mentioned_issues.map(&:id), first_mentioned_in_commit_at: nil).
+      update_all(first_mentioned_in_commit_at: commit.committed_date)
   end
 end

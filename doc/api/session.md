@@ -1,5 +1,12 @@
 # Session
 
+## Deprecation Notice
+
+1. Starting in GitLab 8.11, this feature has been *disabled* for users with two-factor authentication turned on.
+2. These users can access the API using [personal access tokens] instead.
+
+---
+
 You can login with both GitLab and LDAP credentials in order to obtain the
 private token.
 
@@ -14,7 +21,7 @@ POST /session
 | `password` | string  | yes     | The password of the user |
 
 ```bash
-curl -X POST "https://gitlab.example.com/api/v3/session?login=john_smith&password=strongpassw0rd"
+curl --request POST "https://gitlab.example.com/api/v3/session?login=john_smith&password=strongpassw0rd"
 ```
 
 Example response:
@@ -45,3 +52,5 @@ Example response:
   "private_token": "9koXpg98eAheJpvBs5tK"
 }
 ```
+
+[personal access tokens]: ./README.md#personal-access-tokens

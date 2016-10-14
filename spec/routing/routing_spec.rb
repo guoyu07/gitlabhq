@@ -1,5 +1,44 @@
 require 'spec_helper'
 
+# user                       GET    /u/:username/
+# user_groups                GET    /u/:username/groups(.:format)
+# user_projects              GET    /u/:username/projects(.:format)
+# user_contributed_projects  GET    /u/:username/contributed(.:format)
+# user_snippets              GET    /u/:username/snippets(.:format)
+# user_calendar              GET    /u/:username/calendar(.:format)
+# user_calendar_activities   GET    /u/:username/calendar_activities(.:format)
+describe UsersController, "routing" do
+  it "to #show" do
+    allow(User).to receive(:find_by).and_return(true)
+
+    expect(get("/User")).to route_to('users#show', username: 'User')
+  end
+
+  it "to #groups" do
+    expect(get("/u/User/groups")).to route_to('users#groups', username: 'User')
+  end
+
+  it "to #projects" do
+    expect(get("/u/User/projects")).to route_to('users#projects', username: 'User')
+  end
+
+  it "to #contributed" do
+    expect(get("/u/User/contributed")).to route_to('users#contributed', username: 'User')
+  end
+
+  it "to #snippets" do
+    expect(get("/u/User/snippets")).to route_to('users#snippets', username: 'User')
+  end
+
+  it "to #calendar" do
+    expect(get("/u/User/calendar")).to route_to('users#calendar', username: 'User')
+  end
+
+  it "to #calendar_activities" do
+    expect(get("/u/User/calendar_activities")).to route_to('users#calendar_activities', username: 'User')
+  end
+end
+
 # search GET    /search(.:format) search#show
 describe SearchController, "routing" do
   it "to #show" do
@@ -27,10 +66,6 @@ end
 #          PUT    /snippets/:id(.:format)      snippets#update
 #          DELETE /snippets/:id(.:format)      snippets#destroy
 describe SnippetsController, "routing" do
-  it "to #user_index" do
-    expect(get("/s/User")).to route_to('snippets#index', username: 'User')
-  end
-
   it "to #raw" do
     expect(get("/snippets/1/raw")).to route_to('snippets#raw', id: '1')
   end
@@ -65,7 +100,7 @@ describe SnippetsController, "routing" do
 end
 
 #            help GET /help(.:format)                 help#index
-#       help_page GET /help/:category/:file(.:format) help#show {:category=>/.*/, :file=>/[^\/\.]+/}
+#       help_page GET /help/*path(.:format)           help#show
 #  help_shortcuts GET /help/shortcuts(.:format)       help#shortcuts
 #         help_ui GET /help/ui(.:format)              help#ui
 describe HelpController, "routing" do
@@ -74,25 +109,25 @@ describe HelpController, "routing" do
   end
 
   it 'to #show' do
-    path = '/help/markdown/markdown.md'
+    path = '/help/user/markdown.md'
     expect(get(path)).to route_to('help#show',
-                                  category: 'markdown',
-                                  file: 'markdown',
+                                  path: 'user/markdown',
                                   format: 'md')
 
     path = '/help/workflow/protected_branches/protected_branches1.png'
     expect(get(path)).to route_to('help#show',
-                                  category: 'workflow/protected_branches',
-                                  file: 'protected_branches1',
+                                  path: 'workflow/protected_branches/protected_branches1',
                                   format: 'png')
-  end
 
-  it 'to #shortcuts' do
-    expect(get('/help/shortcuts')).to route_to('help#shortcuts')
+    path = '/help/ui'
+    expect(get(path)).to route_to('help#ui')
   end
+end
 
-  it 'to #ui' do
-    expect(get('/help/ui')).to route_to('help#ui')
+#                      koding GET    /koding(.:format)                      koding#index
+describe KodingController, "routing" do
+  it "to #index" do
+    expect(get("/koding")).to route_to('koding#index')
   end
 end
 
@@ -150,16 +185,8 @@ describe Profiles::KeysController, "routing" do
     expect(post("/profile/keys")).to route_to('profiles/keys#create')
   end
 
-  it "to #edit" do
-    expect(get("/profile/keys/1/edit")).to route_to('profiles/keys#edit', id: '1')
-  end
-
   it "to #show" do
     expect(get("/profile/keys/1")).to route_to('profiles/keys#show', id: '1')
-  end
-
-  it "to #update" do
-    expect(put("/profile/keys/1")).to route_to('profiles/keys#update', id: '1')
   end
 
   it "to #destroy" do
@@ -220,7 +247,6 @@ describe RootController, 'routing' do
   end
 end
 
-
 #        new_user_session GET    /users/sign_in(.:format)               devise/sessions#new
 #            user_session POST   /users/sign_in(.:format)               devise/sessions#create
 #    destroy_user_session DELETE /users/sign_out(.:format)              devise/sessions#destroy
@@ -240,6 +266,18 @@ describe "Groups", "routing" do
   end
 
   it "also display group#show on the short path" do
-    expect(get('/1')).to route_to('namespaces#show', id: '1')
+    allow(Group).to receive(:find_by_path).and_return(true)
+
+    expect(get('/1')).to route_to('groups#show', id: '1')
+  end
+end
+
+describe HealthCheckController, 'routing' do
+  it 'to #index' do
+    expect(get('/health_check')).to route_to('health_check#index')
+  end
+
+  it 'also supports passing checks in the url' do
+    expect(get('/health_check/email')).to route_to('health_check#index', checks: 'email')
   end
 end

@@ -1,27 +1,63 @@
-# This task will generate a standard and Retina sprite of all of the current
-# Gemojione Emojis, with the accompanying SCSS map.
-#
-# It will not appear in `rake -T` output, and the dependent gems are not
-# included in the Gemfile by default, because this task will only be needed
-# occasionally, such as when new Emojis are added to Gemojione.
-
-begin
-  require 'sprite_factory'
-  require 'rmagick'
-rescue LoadError
-  # noop
-end
-
 namespace :gemojione do
+  desc 'Generates Emoji SHA256 digests'
+  task digests: :environment do
+    require 'digest/sha2'
+    require 'json'
+
+    dir = Gemojione.images_path
+    digests = []
+    aliases = Hash.new { |hash, key| hash[key] = [] }
+    aliases_path = File.join(Rails.root, 'fixtures', 'emojis', 'aliases.json')
+
+    JSON.parse(File.read(aliases_path)).each do |alias_name, real_name|
+      aliases[real_name] << alias_name
+    end
+
+    Gitlab::AwardEmoji.emojis.map do |name, emoji_hash|
+      fpath = File.join(dir, "#{emoji_hash['unicode']}.png")
+      digest = Digest::SHA256.file(fpath).hexdigest
+
+      digests << { name: name, unicode: emoji_hash['unicode'], digest: digest }
+
+      aliases[name].each do |alias_name|
+        digests << { name: alias_name, unicode: emoji_hash['unicode'], digest: digest }
+      end
+    end
+
+    out = File.join(Rails.root, 'fixtures', 'emojis', 'digests.json')
+
+    File.open(out, 'w') do |handle|
+      handle.write(JSON.pretty_generate(digests))
+    end
+  end
+
+  # This task will generate a standard and Retina sprite of all of the current
+  # Gemojione Emojis, with the accompanying SCSS map.
+  #
+  # It will not appear in `rake -T` output, and the dependent gems are not
+  # included in the Gemfile by default, because this task will only be needed
+  # occasionally, such as when new Emojis are added to Gemojione.
   task sprite: :environment do
+    begin
+      require 'sprite_factory'
+      require 'rmagick'
+    rescue LoadError
+      # noop
+    end
+
     check_requirements!
 
     SIZE   = 20
     RETINA = SIZE * 2
 
+    # Update these values to the width and height of the spritesheet when
+    # new emoji are added.
+    SPRITESHEET_WIDTH = 860
+    SPRITESHEET_HEIGHT = 840
+
     Dir.mktmpdir do |tmpdir|
       # Copy the Gemojione assets to the temporary folder for resizing
-      FileUtils.cp_r(Gemojione.index.images_path, tmpdir)
+      FileUtils.cp_r(Gemojione.images_path, tmpdir)
 
       Dir.chdir(tmpdir) do
         Dir["**/*.png"].each do |png|
@@ -33,7 +69,7 @@ namespace :gemojione do
 
       # Combine the resized assets into a packed sprite and re-generate the SCSS
       SpriteFactory.cssurl = "image-url('$IMAGE')"
-      SpriteFactory.run!(File.join(tmpdir, 'images'), {
+      SpriteFactory.run!(File.join(tmpdir, 'png'), {
         output_style: style_path,
         output_image: "app/assets/images/emoji.png",
         selector:     '.emoji-',
@@ -66,7 +102,7 @@ namespace :gemojione do
                  only screen and (min-resolution: 192dpi),
                  only screen and (min-resolution: 2dppx) {
             background-image: image-url('emoji@2x.png');
-            background-size: 840px 820px;
+            background-size: #{SPRITESHEET_WIDTH}px #{SPRITESHEET_HEIGHT}px;
           }
         }
         CSS
@@ -76,7 +112,7 @@ namespace :gemojione do
     # Now do it again but for Retina
     Dir.mktmpdir do |tmpdir|
       # Copy the Gemojione assets to the temporary folder for resizing
-      FileUtils.cp_r(Gemojione.index.images_path, tmpdir)
+      FileUtils.cp_r(Gemojione.images_path, tmpdir)
 
       Dir.chdir(tmpdir) do
         Dir["**/*.png"].each do |png|
@@ -85,7 +121,7 @@ namespace :gemojione do
       end
 
       # Combine the resized assets into a packed sprite and re-generate the SCSS
-      SpriteFactory.run!(File.join(tmpdir, 'images'), {
+      SpriteFactory.run!(File.join(tmpdir), {
         output_image: "app/assets/images/emoji@2x.png",
         style:        false,
         nocomments:   true,

@@ -1,5 +1,5 @@
 class HelpController < ApplicationController
-  skip_before_action :authenticate_user!, :reject_blocked
+  skip_before_action :authenticate_user!, :reject_blocked!
 
   layout 'help'
 
@@ -12,13 +12,12 @@ class HelpController < ApplicationController
   end
 
   def show
-    @category = clean_path_info(path_params[:category])
-    @file = path_params[:file]
+    @path = clean_path_info(path_params[:path])
 
     respond_to do |format|
       format.any(:markdown, :md, :html) do
         # Note: We are purposefully NOT using `Rails.root.join`
-        path = File.join(Rails.root, 'doc', @category, "#{@file}.md")
+        path = File.join(Rails.root, 'doc', "#{@path}.md")
 
         if File.exist?(path)
           @markdown = File.read(path)
@@ -31,9 +30,9 @@ class HelpController < ApplicationController
       end
 
       # Allow access to images in the doc folder
-      format.any(:png, :gif, :jpeg) do
+      format.any(:png, :gif, :jpeg, :mp4) do
         # Note: We are purposefully NOT using `Rails.root.join`
-        path = File.join(Rails.root, 'doc', @category, "#{@file}.#{params[:format]}")
+        path = File.join(Rails.root, 'doc', "#{@path}.#{params[:format]}")
 
         if File.exist?(path)
           send_file(path, disposition: 'inline')
@@ -51,13 +50,13 @@ class HelpController < ApplicationController
   end
 
   def ui
+    @user = User.new(id: 0, name: 'John Doe', username: '@johndoe')
   end
 
   private
 
   def path_params
-    params.require(:category)
-    params.require(:file)
+    params.require(:path)
 
     params
   end

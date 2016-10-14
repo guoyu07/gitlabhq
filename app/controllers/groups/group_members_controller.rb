@@ -1,6 +1,8 @@
 class Groups::GroupMembersController < Groups::ApplicationController
+  include MembershipActions
+
   # Authorize
-  before_action :authorize_admin_group_member!, except: [:index, :leave]
+  before_action :authorize_admin_group_member!, except: [:index, :leave, :request_access]
 
   def index
     @project = @group.projects.find(params[:project_id]) if params[:project_id]
@@ -13,12 +15,18 @@ class Groups::GroupMembersController < Groups::ApplicationController
     end
 
     @members = @members.order('access_level DESC').page(params[:page]).per(50)
+    @requesters = AccessRequestsFinder.new(@group).execute(current_user)
 
     @group_member = @group.group_members.new
   end
 
   def create
-    @group.add_users(params[:user_ids].split(','), params[:access_level], current_user)
+    @group.add_users(
+      params[:user_ids].split(','),
+      params[:access_level],
+      current_user: current_user,
+      expires_at: params[:expires_at]
+    )
 
     redirect_to group_group_members_path(@group), notice: 'Users were successfully added.'
   end
@@ -32,15 +40,11 @@ class Groups::GroupMembersController < Groups::ApplicationController
   end
 
   def destroy
-    @group_member = @group.group_members.find(params[:id])
-
-    return render_403 unless can?(current_user, :destroy_group_member, @group_member)
-
-    @group_member.destroy
+    Members::DestroyService.new(@group, current_user, id: params[:id]).execute(:all)
 
     respond_to do |format|
       format.html { redirect_to group_group_members_path(@group), notice: 'User was successfully removed from group.' }
-      format.js { render nothing: true }
+      format.js { head :ok }
     end
   end
 
@@ -58,25 +62,12 @@ class Groups::GroupMembersController < Groups::ApplicationController
     end
   end
 
-  def leave
-    @group_member = @group.group_members.find_by(user_id: current_user)
-
-    if can?(current_user, :destroy_group_member, @group_member)
-      @group_member.destroy
-
-      redirect_to(dashboard_groups_path, notice: "You left #{group.name} group.")
-    else
-      if @group.last_owner?(current_user)
-        redirect_to(dashboard_groups_path, alert: "You can not leave #{group.name} group because you're the last owner. Transfer or delete the group.")
-      else
-        return render_403
-      end
-    end
-  end
-
   protected
 
   def member_params
-    params.require(:group_member).permit(:access_level, :user_id)
+    params.require(:group_member).permit(:access_level, :user_id, :expires_at)
   end
+
+  # MembershipActions concern
+  alias_method :membershipable, :group
 end

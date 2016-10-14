@@ -1,16 +1,3 @@
-# == Schema Information
-#
-# Table name: labels
-#
-#  id         :integer          not null, primary key
-#  title      :string(255)
-#  color      :string(255)
-#  project_id :integer
-#  created_at :datetime
-#  updated_at :datetime
-#  template   :boolean          default(FALSE)
-#
-
 require 'spec_helper'
 
 describe Label, models: true do
@@ -18,8 +5,10 @@ describe Label, models: true do
 
   describe 'associations' do
     it { is_expected.to belong_to(:project) }
+
     it { is_expected.to have_many(:label_links).dependent(:destroy) }
     it { is_expected.to have_many(:issues).through(:label_links).source(:target) }
+    it { is_expected.to have_many(:lists).dependent(:destroy) }
   end
 
   describe 'modules' do
@@ -31,7 +20,7 @@ describe Label, models: true do
   describe 'validation' do
     it { is_expected.to validate_presence_of(:project) }
 
-    it 'should validate color code' do
+    it 'validates color code' do
       expect(label).not_to allow_value('G-ITLAB').for(:color)
       expect(label).not_to allow_value('AABBCC').for(:color)
       expect(label).not_to allow_value('#AABBCCEE').for(:color)
@@ -43,15 +32,22 @@ describe Label, models: true do
       expect(label).to allow_value('#abcdef').for(:color)
     end
 
-    it 'should validate title' do
+    it 'validates title' do
       expect(label).not_to allow_value('G,ITLAB').for(:title)
-      expect(label).not_to allow_value('G?ITLAB').for(:title)
-      expect(label).not_to allow_value('G&ITLAB').for(:title)
       expect(label).not_to allow_value('').for(:title)
 
       expect(label).to allow_value('GITLAB').for(:title)
       expect(label).to allow_value('gitlab').for(:title)
+      expect(label).to allow_value('G?ITLAB').for(:title)
+      expect(label).to allow_value('G&ITLAB').for(:title)
       expect(label).to allow_value("customer's request").for(:title)
+    end
+  end
+
+  describe '#title' do
+    it 'sanitizes title' do
+      label = described_class.new(title: '<b>foo & bar?</b>')
+      expect(label.title).to eq('foo & bar?')
     end
   end
 

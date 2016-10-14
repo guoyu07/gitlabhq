@@ -19,6 +19,11 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
     click_on "Create page"
   end
 
+  step 'I create the Wiki Home page with no content' do
+    fill_in "wiki_content", with: ''
+    click_on "Create page"
+  end
+
   step 'I should see the newly created wiki page' do
     expect(page).to have_content "Home"
     expect(page).to have_content "link test"
@@ -85,7 +90,7 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
   end
 
   step 'I have an existing Wiki page with images linked on page' do
-    wiki.create_page("pictures", "Look at this [image](image.jpg)\n\n ![image](image.jpg)", :markdown, "first commit")
+    wiki.create_page("pictures", "Look at this [image](image.jpg)\n\n ![alt text](image.jpg)", :markdown, "first commit")
     @wiki_page = wiki.find_page("pictures")
   end
 
@@ -97,7 +102,7 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
     file = Gollum::File.new(wiki.wiki)
     Gollum::Wiki.any_instance.stub(:file).with("image.jpg", "master", true).and_return(file)
     Gollum::File.any_instance.stub(:mime_type).and_return("image/jpeg")
-    expect(page).to have_link('image', href: "image.jpg")
+    expect(page).to have_link('image', href: "#{wiki.wiki_base_path}/image.jpg")
     click_on "image"
   end
 
@@ -113,7 +118,7 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
   end
 
   step 'I click on image link' do
-    expect(page).to have_link('image', href: "image.jpg")
+    expect(page).to have_link('image', href: "#{wiki.wiki_base_path}/image.jpg")
     click_on "image"
   end
 
@@ -125,24 +130,26 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
 
   step 'I create a New page with paths' do
     click_on 'New Page'
-    fill_in 'Page slug', with: 'one/two/three'
+    fill_in 'Page slug', with: 'one/two/three-test'
     click_on 'Create Page'
     fill_in "wiki_content", with: 'wiki content'
     click_on "Create page"
-    expect(current_path).to include 'one/two/three'
+    expect(current_path).to include 'one/two/three-test'
   end
 
   step 'I should see non-escaped link in the pages list' do
-    expect(page).to have_xpath("//a[@href='/#{project.path_with_namespace}/wikis/one/two/three']")
+    expect(page).to have_xpath("//a[@href='/#{project.path_with_namespace}/wikis/one/two/three-test']")
   end
 
   step 'I edit the Wiki page with a path' do
+    expect(page).to have_content('three')
     click_on 'three'
+    expect(find('.nav-text')).to have_content('Three')
     click_on 'Edit'
   end
 
   step 'I should see a non-escaped path' do
-    expect(current_path).to include 'one/two/three'
+    expect(current_path).to include 'one/two/three-test'
   end
 
   step 'I should see the Editing page' do
@@ -171,6 +178,11 @@ class Spinach::Features::ProjectWiki < Spinach::FeatureSteps
 
   step 'I should see a link with a version ID' do
     find('a[href*="?version_id"]')
+  end
+
+  step 'I should see a "Content can\'t be blank" error message' do
+    expect(page).to have_content('The form contains the following error:')
+    expect(page).to have_content('Content can\'t be blank')
   end
 
   def wiki

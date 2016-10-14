@@ -8,40 +8,62 @@ under [`/lib/api`](https://gitlab.com/gitlab-org/gitlab-ce/tree/master/lib/api).
 Documentation for various API resources can be found separately in the
 following locations:
 
-- [Users](users.md)
-- [Session](session.md)
+- [Award Emoji](award_emoji.md)
+- [Branches](branches.md)
+- [Broadcast Messages](broadcast_messages.md)
+- [Builds](builds.md)
+- [Build Triggers](build_triggers.md)
+- [Build Variables](build_variables.md)
+- [Commits](commits.md)
+- [Deployments](deployments.md)
+- [Deploy Keys](deploy_keys.md)
+- [Gitignores templates](templates/gitignores.md)
+- [GitLab CI Config templates](templates/gitlab_ci_ymls.md)
+- [Groups](groups.md)
+- [Group Access Requests](access_requests.md)
+- [Group Members](members.md)
+- [Issues](issues.md)
+- [Keys](keys.md)
+- [Labels](labels.md)
+- [Merge Requests](merge_requests.md)
+- [Milestones](milestones.md)
+- [Open source license templates](templates/licenses.md)
+- [Namespaces](namespaces.md)
+- [Notes](notes.md) (comments)
+- [Notification settings](notification_settings.md)
+- [Pipelines](pipelines.md)
 - [Projects](projects.md) including setting Webhooks
+- [Project Access Requests](access_requests.md)
+- [Project Members](members.md)
 - [Project Snippets](project_snippets.md)
-- [Services](services.md)
 - [Repositories](repositories.md)
 - [Repository Files](repository_files.md)
-- [Commits](commits.md)
-- [Tags](tags.md)
-- [Branches](branches.md)
-- [Merge Requests](merge_requests.md)
-- [Issues](issues.md)
-- [Labels](labels.md)
-- [Milestones](milestones.md)
-- [Notes](notes.md) (comments)
-- [Deploy Keys](deploy_keys.md)
-- [System Hooks](system_hooks.md)
-- [Groups](groups.md)
-- [Namespaces](namespaces.md)
-- [Settings](settings.md)
-- [Keys](keys.md)
-- [Builds](builds.md)
-- [Build triggers](build_triggers.md)
-- [Build Variables](build_variables.md)
 - [Runners](runners.md)
+- [Services](services.md)
+- [Session](session.md)
+- [Settings](settings.md)
+- [Sidekiq metrics](sidekiq_metrics.md)
+- [System Hooks](system_hooks.md)
+- [Tags](tags.md)
+- [Todos](todos.md)
+- [Users](users.md)
+- [Validate CI configuration](ci/lint.md)
+- [Version](version.md)
+
+### Internal CI API
+
+The following documentation is for the [internal CI API](ci/README.md):
+
+- [Builds](ci/builds.md)
+- [Runners](ci/runners.md)
 
 ## Authentication
 
-All API requests require authentication. You need to pass a `private_token`
-parameter via query string or header. If passed as a header, the header name
-must be `PRIVATE-TOKEN` (uppercase and with a dash instead of an underscore).
-You can find or reset your private token in your account page (`/profile/account`).
+All API requests require authentication via a session cookie or token. There are
+three types of tokens available: private tokens, OAuth 2 tokens, and personal
+access tokens.
 
-If `private_token` is invalid or omitted, then an error message will be
+If authentication information is invalid or omitted, an error message will be
 returned with status code `401`:
 
 ```json
@@ -49,6 +71,46 @@ returned with status code `401`:
   "message": "401 Unauthorized"
 }
 ```
+
+### Private Tokens
+
+You need to pass a `private_token` parameter via query string or header. If passed as a
+header, the header name must be `PRIVATE-TOKEN` (uppercase and with a dash instead of
+an underscore). You can find or reset your private token in your account page
+(`/profile/account`).
+
+### OAuth 2 Tokens
+
+You can use an OAuth 2 token to authenticate with the API by passing it either in the
+`access_token` parameter or in the `Authorization` header.
+
+Example of using the OAuth2 token in the header:
+
+```shell
+curl --header "Authorization: Bearer OAUTH-TOKEN" https://gitlab.example.com/api/v3/projects
+```
+
+Read more about [GitLab as an OAuth2 client](oauth2.md).
+
+### Personal Access Tokens
+
+> [Introduced][ce-3749] in GitLab 8.8.
+
+You can create as many personal access tokens as you like from your GitLab
+profile (`/profile/personal_access_tokens`); perhaps one for each application
+that needs access to the GitLab API.
+
+Once you have your token, pass it to the API using either the `private_token`
+parameter or the `PRIVATE-TOKEN` header.
+
+
+### Session Cookie
+
+When signing in to GitLab as an ordinary user, a `_gitlab_session` cookie is
+set. The API will use this cookie for authentication if it is present, but using
+the API to generate a new session cookie is currently not supported.
+
+## Basic Usage
 
 API requests should be prefixed with `api` and the API version. The API version
 is defined in [`lib/api.rb`][lib-api-url].
@@ -67,25 +129,6 @@ curl --header "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" "https://gitlab.example.com/
 
 The API uses JSON to serialize data. You don't need to specify `.json` at the
 end of an API URL.
-
-## Authentication with OAuth2 token
-
-Instead of the `private_token` you can transmit the OAuth2 access token as a
-header or as a parameter.
-
-Example of OAuth2 token as a parameter:
-
-```shell
-curl https://gitlab.example.com/api/v3/user?access_token=OAUTH-TOKEN
-```
-
-Example of OAuth2 token as a header:
-
-```shell
-curl -H "Authorization: Bearer OAUTH-TOKEN" https://example.com/api/v3/user
-```
-
-Read more about [GitLab as an OAuth2 client](oauth2.md).
 
 ## Status codes
 
@@ -108,6 +151,7 @@ The following table shows the possible return codes for API requests.
 | ------------- | ----------- |
 | `200 OK` | The `GET`, `PUT` or `DELETE` request was successful, the resource(s) itself is returned as JSON. |
 | `201 Created` | The `POST` request was successful and the resource is returned as JSON. |
+| `304 Not Modified` | Indicates that the resource has not been modified since the last request. |
 | `400 Bad Request` | A required attribute of the API request is missing, e.g., the title of an issue is not given. |
 | `401 Unauthorized` | The user is not authenticated, a valid [user token](#authentication) is necessary. |
 | `403 Forbidden` | The request is not allowed, e.g., the user is not allowed to delete a project. |
@@ -130,7 +174,7 @@ be returned with status code `403`:
 
 ```json
 {
-  "message": "403 Forbidden: Must be admin to use sudo"
+  "message": "403 Forbidden - Must be admin to use sudo"
 }
 ```
 
@@ -180,7 +224,7 @@ resources you can pass the following parameters:
 In the example below, we list 50 [namespaces](namespaces.md) per page.
 
 ```bash
-curl -X PUT -H "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" "https://gitlab.example.com/api/v3/namespaces?per_page=50
+curl --request PUT --header "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" "https://gitlab.example.com/api/v3/namespaces?per_page=50
 ```
 
 ### Pagination Link header
@@ -194,7 +238,7 @@ and we request the second page (`page=2`) of [comments](notes.md) of the issue
 with ID `8` which belongs to the project with ID `8`:
 
 ```bash
-curl -I -H "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" https://gitlab.example.com/api/v3/projects/8/issues/8/notes?per_page=3&page=2
+curl --head --header "PRIVATE-TOKEN: 9koXpg98eAheJpvBs5tK" https://gitlab.example.com/api/v3/projects/8/issues/8/notes?per_page=3&page=2
 ```
 
 The response will then be:
@@ -314,6 +358,19 @@ follows:
 }
 ```
 
+## Unknown route
+
+When you try to access an API URL that does not exist you will receive 404 Not Found.
+
+```
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+{
+    "error": "404 Not Found"
+}
+```
+
+
 ## Clients
 
 There are many unofficial GitLab API Clients for most of the popular
@@ -321,3 +378,4 @@ programming languages. Visit the [GitLab website] for a complete list.
 
 [GitLab website]: https://about.gitlab.com/applications/#api-clients "Clients using the GitLab API"
 [lib-api-url]: https://gitlab.com/gitlab-org/gitlab-ce/tree/master/lib/api/api.rb
+[ce-3749]: https://gitlab.com/gitlab-org/gitlab-ce/merge_requests/3749

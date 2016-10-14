@@ -23,7 +23,7 @@ Disallow: /groups/*/edit
 Disallow: /users
 
 # Global snippets
-Disallow: /s
+Disallow: /s/
 Disallow: /snippets/new
 Disallow: /snippets/*/edit
 Disallow: /snippets/*/raw
@@ -65,3 +65,4 @@ Disallow: /*/*/deploy_keys
 Disallow: /*/*/hooks
 Disallow: /*/*/services
 Disallow: /*/*/protected_branches
+Disallow: /*/*/uploads/

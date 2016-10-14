@@ -1,11 +1,5 @@
 = form_for [@project.namespace.becomes(Namespace), @project, @label], html: { class: 'form-horizontal label-form js-quick-submit js-requires-input' } do |f|
-  -if @label.errors.any?
-    .row
-      .col-sm-offset-2.col-sm-10
-        .alert.alert-danger
-          - @label.errors.full_messages.each do |msg|
-            %span= msg
-            %br
+  = form_errors(@label)
 
   .form-group
     = f.label :title, class: 'control-label'
@@ -20,7 +14,7 @@
     .col-sm-10
       .input-group
         .input-group-addon.label-color-preview &nbsp;
-        = f.color_field :color, class: "form-control"
+        = f.text_field :color, class: "form-control"
       .help-block
         Choose any color.
         %br

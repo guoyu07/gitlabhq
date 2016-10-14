@@ -36,7 +36,7 @@ class Spinach::Features::ProjectFork < Spinach::FeatureSteps
   end
 
   step 'I goto the Merge Requests page' do
-    page.within '.page-sidebar-expanded' do
+    page.within '.layout-nav' do
       click_link "Merge Requests"
     end
   end
@@ -70,6 +70,7 @@ class Spinach::Features::ProjectFork < Spinach::FeatureSteps
 
   step 'There is an existent fork of the "Shop" project' do
     user = create(:user, name: 'Mike')
+    @project.team << [user, :reporter]
     @forked_project = Projects::ForkService.new(@project, user).execute
   end
 

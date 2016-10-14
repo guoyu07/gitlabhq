@@ -1,7 +1,3 @@
-require 'action_controller'
-require 'gitlab_emoji'
-require 'html/pipeline/filter'
-
 module Banzai
   module Filter
     # HTML filter that replaces :emoji: with images.
@@ -42,6 +38,11 @@ module Banzai
         end
       end
 
+      # Build a regexp that matches all valid :emoji: names.
+      def self.emoji_pattern
+        @emoji_pattern ||= /:(#{Gitlab::Emoji.emojis_names.map { |name| Regexp.escape(name) }.join('|')}):/
+      end
+
       private
 
       def emoji_url(name)
@@ -63,17 +64,12 @@ module Banzai
         ActionController::Base.helpers.url_to_image(image)
       end
 
-      # Build a regexp that matches all valid :emoji: names.
-      def self.emoji_pattern
-        @emoji_pattern ||= /:(#{Emoji.emojis_names.map { |name| Regexp.escape(name) }.join('|')}):/
-      end
-
       def emoji_pattern
         self.class.emoji_pattern
       end
 
       def emoji_filename(name)
-        "#{Emoji.emoji_filename(name)}.png"
+        "#{Gitlab::Emoji.emoji_filename(name)}.png"
       end
     end
   end

@@ -55,11 +55,13 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
       end
     else
       saml_user = Gitlab::Saml::User.new(oauth)
-      saml_user.save
+      saml_user.save if saml_user.changed?
       @user = saml_user.gl_user
 
       continue_login_process
     end
+  rescue Gitlab::OAuth::SignupDisabledError
+    handle_signup_error
   end
 
   def omniauth_error
@@ -92,6 +94,32 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
       continue_login_process
     end
   rescue Gitlab::OAuth::SignupDisabledError
+    handle_signup_error
+  end
+
+  def handle_service_ticket(provider, ticket)
+    Gitlab::OAuth::Session.create provider, ticket
+    session[:service_tickets] ||= {}
+    session[:service_tickets][provider] = ticket
+  end
+
+  def continue_login_process
+    # Only allow properly saved users to login.
+    if @user.persisted? && @user.valid?
+      log_audit_event(@user, with: oauth['provider'])
+      if @user.two_factor_enabled?
+        prompt_for_two_factor(@user)
+      else
+        sign_in_and_redirect(@user)
+      end
+    else
+      error_message = @user.errors.full_messages.to_sentence
+
+      redirect_to omniauth_error_path(oauth['provider'], error: error_message) and return
+    end
+  end
+
+  def handle_signup_error
     label = Gitlab::OAuth::Provider.label_for(oauth['provider'])
     message = "Signing in using your #{label} account without a pre-existing GitLab account is not allowed."
 
@@ -102,24 +130,6 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
     flash[:notice] = message
 
     redirect_to new_user_session_path
-  end
-
-  def handle_service_ticket provider, ticket
-    Gitlab::OAuth::Session.create provider, ticket
-    session[:service_tickets] ||= {}
-    session[:service_tickets][provider] = ticket
-  end
-
-  def continue_login_process
-    # Only allow properly saved users to login.
-    if @user.persisted? && @user.valid?
-      log_audit_event(@user, with: oauth['provider'])
-      sign_in_and_redirect(@user)
-    else
-      error_message = @user.errors.full_messages.to_sentence
-
-      redirect_to omniauth_error_path(oauth['provider'], error: error_message) and return
-    end
   end
 
   def oauth

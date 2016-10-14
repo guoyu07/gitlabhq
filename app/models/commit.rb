@@ -8,15 +8,18 @@ class Commit
   include StaticModel
 
   attr_mentionable :safe_message, pipeline: :single_line
-  participant :author, :committer, :notes
+
+  participant :author
+  participant :committer
+  participant :notes_with_associations
 
   attr_accessor :project
 
   DIFF_SAFE_LINES = Gitlab::Git::DiffCollection::DEFAULT_LIMITS[:max_lines]
 
   # Commits above this size will not be rendered in HTML
-  DIFF_HARD_LIMIT_FILES = 1000 unless defined?(DIFF_HARD_LIMIT_FILES)
-  DIFF_HARD_LIMIT_LINES = 50000 unless defined?(DIFF_HARD_LIMIT_LINES)
+  DIFF_HARD_LIMIT_FILES = 1000
+  DIFF_HARD_LIMIT_LINES = 50000
 
   class << self
     def decorate(commits, project)
@@ -74,14 +77,14 @@ class Commit
   #
   # This pattern supports cross-project references.
   def self.reference_pattern
-    %r{
+    @reference_pattern ||= %r{
       (?:#{Project.reference_pattern}#{reference_prefix})?
       (?<commit>\h{7,40})
     }x
   end
 
   def self.link_reference_pattern
-    super("commit", /(?<commit>\h{7,40})/)
+    @link_reference_pattern ||= super("commit", /(?<commit>\h{7,40})/)
   end
 
   def to_reference(from_project = nil)
@@ -101,17 +104,8 @@ class Commit
   end
 
   def diff_line_count
-    @diff_line_count ||= Commit::diff_line_count(self.diffs)
+    @diff_line_count ||= Commit::diff_line_count(raw_diffs)
     @diff_line_count
-  end
-
-  # Returns a string describing the commit for use in a link title
-  #
-  # Example
-  #
-  #   "Commit: Alex Denisov - Project git clone panel"
-  def link_title
-    "Commit: #{author_name} - #{title}"
   end
 
   # Returns the commits title.
@@ -120,15 +114,17 @@ class Commit
   # In case this first line is longer than 100 characters, it is cut off
   # after 80 characters and ellipses (`&hellp;`) are appended.
   def title
-    title = safe_message
+    full_title.length > 100 ? full_title[0..79] << "…" : full_title
+  end
 
-    return no_commit_message if title.blank?
+  # Returns the full commits title
+  def full_title
+    return @full_title if @full_title
 
-    title_end = title.index("\n")
-    if (!title_end && title.length > 100) || (title_end && title_end > 100)
-      title[0..79] << "…"
+    if safe_message.blank?
+      @full_title = no_commit_message
     else
-      title.split("\n", 2).first
+      @full_title = safe_message.split("\n", 2).first
     end
   end
 
@@ -150,13 +146,11 @@ class Commit
   end
 
   def hook_attrs(with_changed_files: false)
-    path_with_namespace = project.path_with_namespace
-
     data = {
       id: id,
       message: safe_message,
       timestamp: committed_date.xmlschema,
-      url: "#{Gitlab.config.gitlab.url}/#{path_with_namespace}/commit/#{id}",
+      url: Gitlab::UrlBuilder.build(self),
       author: {
         name: author_name,
         email: author_email
@@ -177,7 +171,18 @@ class Commit
   end
 
   def author
-    @author ||= User.find_by_any_email(author_email.downcase)
+    if RequestStore.active?
+      key = "commit_author:#{author_email.downcase}"
+      # nil is a valid value since no author may exist in the system
+      if RequestStore.store.has_key?(key)
+        @author = RequestStore.store[key]
+      else
+        @author = find_author_by_any_email
+        RequestStore.store[key] = @author
+      end
+    else
+      @author ||= find_author_by_any_email
+    end
   end
 
   def committer
@@ -196,6 +201,10 @@ class Commit
     project.notes.for_commit_id(self.id)
   end
 
+  def notes_with_associations
+    notes.includes(:author)
+  end
+
   def method_missing(m, *args, &block)
     @raw.send(m, *args, &block)
   end
@@ -209,16 +218,28 @@ class Commit
     @raw.short_id(7)
   end
 
-  def ci_commit
-    project.ci_commit(sha)
+  def diff_refs
+    Gitlab::Diff::DiffRefs.new(
+      base_sha: self.parent_id || Gitlab::Git::BLANK_SHA,
+      head_sha: self.sha
+    )
+  end
+
+  def pipelines
+    @pipeline ||= project.pipelines.where(sha: sha)
   end
 
   def status
-    ci_commit.try(:status) || :not_found
+    return @status if defined?(@status)
+    @status ||= pipelines.status
   end
 
   def revert_branch_name
     "revert-#{short_id}"
+  end
+
+  def cherry_pick_branch_name
+    project.repository.next_branch("cherry-pick-#{short_id}", mild: true)
   end
 
   def revert_description
@@ -230,7 +251,7 @@ class Commit
   end
 
   def revert_message
-    %Q{Revert "#{title}"\n\n#{revert_description}}
+    %Q{Revert "#{title.strip}"\n\n#{revert_description}}
   end
 
   def reverts_commit?(commit)
@@ -248,19 +269,63 @@ class Commit
   end
 
   def has_been_reverted?(current_user = nil, noteable = self)
-    Gitlab::ReferenceExtractor.lazily do
-      noteable.notes.system.flat_map do |note|
-        note.all_references(current_user).commits
-      end
-    end.any? { |commit_ref| commit_ref.reverts_commit?(self) }
+    ext = all_references(current_user)
+
+    noteable.notes_with_associations.system.each do |note|
+      note.all_references(current_user, extractor: ext)
+    end
+
+    ext.commits.any? { |commit_ref| commit_ref.reverts_commit?(self) }
+  end
+
+  def change_type_title
+    merged_merge_request ? 'merge request' : 'commit'
+  end
+
+  # Get the URI type of the given path
+  #
+  # Used to build URLs to files in the repository in GFM.
+  #
+  # path - String path to check
+  #
+  # Examples:
+  #
+  #   uri_type('doc/README.md') # => :blob
+  #   uri_type('doc/logo.png')  # => :raw
+  #   uri_type('doc/api')       # => :tree
+  #   uri_type('not/found')     # => :nil
+  #
+  # Returns a symbol
+  def uri_type(path)
+    entry = @raw.tree.path(path)
+    if entry[:type] == :blob
+      blob = ::Blob.decorate(Gitlab::Git::Blob.new(name: entry[:name]))
+      blob.image? || blob.video? ? :raw : :blob
+    else
+      entry[:type]
+    end
+  rescue Rugged::TreeError
+    nil
+  end
+
+  def raw_diffs(*args)
+    raw.diffs(*args)
+  end
+
+  def diffs(diff_options = nil)
+    Gitlab::Diff::FileCollection::Commit.new(self, diff_options: diff_options)
   end
 
   private
 
+  def find_author_by_any_email
+    User.find_by_any_email(author_email.downcase)
+  end
+
   def repo_changes
     changes = { added: [], modified: [], removed: [] }
 
-    diffs.each do |diff|
+    raw_diffs(deltas_only: true).each do |diff|
       if diff.deleted_file
         changes[:removed] << diff.old_path
       elsif diff.renamed_file || diff.new_file

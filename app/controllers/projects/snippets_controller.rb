@@ -1,9 +1,11 @@
 class Projects::SnippetsController < Projects::ApplicationController
+  include ToggleAwardEmoji
+
   before_action :module_enabled
-  before_action :snippet, only: [:show, :edit, :destroy, :update, :raw]
+  before_action :snippet, only: [:show, :edit, :destroy, :update, :raw, :toggle_award_emoji]
 
   # Allow read any snippet
-  before_action :authorize_read_project_snippet!
+  before_action :authorize_read_project_snippet!, except: [:new, :create, :index]
 
   # Allow write(create) snippet
   before_action :authorize_create_project_snippet!, only: [:new, :create]
@@ -54,7 +56,7 @@ class Projects::SnippetsController < Projects::ApplicationController
 
   def show
     @note = @project.notes.new(noteable: @snippet)
-    @notes = @snippet.notes.fresh
+    @notes = Banzai::NoteRenderer.render(@snippet.notes.fresh, @project, current_user)
     @noteable = @snippet
   end
 
@@ -80,6 +82,11 @@ class Projects::SnippetsController < Projects::ApplicationController
   def snippet
     @snippet ||= @project.snippets.find(params[:id])
   end
+  alias_method :awardable, :snippet
+
+  def authorize_read_project_snippet!
+    return render_404 unless can?(current_user, :read_project_snippet, @snippet)
+  end
 
   def authorize_update_project_snippet!
     return render_404 unless can?(current_user, :update_project_snippet, @snippet)
@@ -90,7 +97,7 @@ class Projects::SnippetsController < Projects::ApplicationController
   end
 
   def module_enabled
-    return render_404 unless @project.snippets_enabled
+    return render_404 unless @project.feature_available?(:snippets, current_user)
   end
 
   def snippet_params

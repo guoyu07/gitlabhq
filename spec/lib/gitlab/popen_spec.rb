@@ -10,7 +10,7 @@ describe 'Gitlab::Popen', lib: true, no_db: true do
 
   context 'zero status' do
     before do
-      @output, @status = @klass.new.popen(%W(ls), path)
+      @output, @status = @klass.new.popen(%w(ls), path)
     end
 
     it { expect(@status).to be_zero }
@@ -19,7 +19,7 @@ describe 'Gitlab::Popen', lib: true, no_db: true do
 
   context 'non-zero status' do
     before do
-      @output, @status = @klass.new.popen(%W(cat NOTHING), path)
+      @output, @status = @klass.new.popen(%w(cat NOTHING), path)
     end
 
     it { expect(@status).to eq(1) }
@@ -34,10 +34,19 @@ describe 'Gitlab::Popen', lib: true, no_db: true do
 
   context 'without a directory argument' do
     before do
-      @output, @status = @klass.new.popen(%W(ls))
+      @output, @status = @klass.new.popen(%w(ls))
     end
 
     it { expect(@status).to be_zero }
     it { expect(@output).to include('spec') }
+  end
+
+  context 'use stdin' do
+    before do
+      @output, @status = @klass.new.popen(%w[cat]) { |stdin| stdin.write 'hello' }
+    end
+  
+    it { expect(@status).to be_zero }
+    it { expect(@output).to eq('hello') }
   end
 end

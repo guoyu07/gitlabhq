@@ -3,17 +3,20 @@ require 'fogbugz'
 
 class ApplicationController < ActionController::Base
   include Gitlab::CurrentSettings
+  include Gitlab::GonHelper
   include GitlabRoutingHelper
   include PageLayoutHelper
+  include SentryHelper
+  include WorkhorseHelper
 
-  before_action :authenticate_user_from_token!
+  before_action :authenticate_user_from_private_token!
   before_action :authenticate_user!
   before_action :validate_user_service_ticket!
   before_action :reject_blocked!
   before_action :check_password_expiration
   before_action :check_2fa_requirement
   before_action :ldap_security_check
-  before_action :sentry_user_context
+  before_action :sentry_context
   before_action :default_headers
   before_action :add_gon_variables
   before_action :configure_permitted_parameters, if: :devise_controller?
@@ -21,8 +24,8 @@ class ApplicationController < ActionController::Base
 
   protect_from_forgery with: :exception
 
-  helper_method :abilities, :can?, :current_application_settings
-  helper_method :import_sources_enabled?, :github_import_enabled?, :github_import_configured?, :gitlab_import_enabled?, :gitlab_import_configured?, :bitbucket_import_enabled?, :bitbucket_import_configured?, :gitorious_import_enabled?, :google_code_import_enabled?, :fogbugz_import_enabled?, :git_import_enabled?
+  helper_method :can?, :current_application_settings
+  helper_method :import_sources_enabled?, :github_import_enabled?, :github_import_configured?, :gitlab_import_enabled?, :gitlab_import_configured?, :bitbucket_import_enabled?, :bitbucket_import_configured?, :google_code_import_enabled?, :fogbugz_import_enabled?, :git_import_enabled?, :gitlab_project_import_enabled?
 
   rescue_from Encoding::CompatibilityError do |exception|
     log_exception(exception)
@@ -34,33 +37,20 @@ class ApplicationController < ActionController::Base
     render_404
   end
 
+  rescue_from Gitlab::Access::AccessDeniedError do |exception|
+    render_403
+  end
+
   def redirect_back_or_default(default: root_path, options: {})
     redirect_to request.referer.present? ? :back : default, options
   end
 
   protected
 
-  def sentry_user_context
-    if Rails.env.production? && current_application_settings.sentry_enabled && current_user
-      Raven.user_context(
-        id: current_user.id,
-        email: current_user.email,
-        username: current_user.username,
-      )
-    end
-  end
-
-  # From https://github.com/plataformatec/devise/wiki/How-To:-Simple-Token-Authentication-Example
-  # https://gist.github.com/josevalim/fb706b1e933ef01e4fb6
-  def authenticate_user_from_token!
-    user_token = if params[:authenticity_token].presence
-                   params[:authenticity_token].presence
-                 elsif params[:private_token].presence
-                   params[:private_token].presence
-                 elsif request.headers['PRIVATE-TOKEN'].present?
-                   request.headers['PRIVATE-TOKEN']
-                 end
-    user = user_token && User.find_by_authentication_token(user_token.to_s)
+  # This filter handles both private tokens and personal access tokens
+  def authenticate_user_from_private_token!
+    token_string = params[:private_token].presence || request.headers['PRIVATE-TOKEN'].presence
+    user = User.find_by_authentication_token(token_string) || User.find_by_personal_access_token(token_string)
 
     if user
       # Notice we are passing store false, so the user is not
@@ -104,15 +94,11 @@ class ApplicationController < ActionController::Base
   end
 
   def after_sign_out_path_for(resource)
-    current_application_settings.after_sign_out_path || new_user_session_path
-  end
-
-  def abilities
-    Ability.abilities
+    current_application_settings.after_sign_out_path.presence || new_user_session_path
   end
 
   def can?(object, action, subject)
-    abilities.allowed?(object, action, subject)
+    Ability.allowed?(object, action, subject)
   end
 
   def access_denied!
@@ -148,20 +134,6 @@ class ApplicationController < ActionController::Base
     end
   end
 
-  def add_gon_variables
-    gon.api_version            = API::API.version
-    gon.default_avatar_url     = URI::join(Gitlab.config.gitlab.url, ActionController::Base.helpers.image_path('no_avatar.png')).to_s
-    gon.default_issues_tracker = Project.new.default_issue_tracker.to_param
-    gon.max_file_size          = current_application_settings.max_attachment_size
-    gon.relative_url_root      = Gitlab.config.gitlab.relative_url_root
-    gon.user_color_scheme      = Gitlab::ColorSchemes.for_user(current_user).css_class
-
-    if current_user
-      gon.current_user_id = current_user.id
-      gon.api_token = current_user.private_token
-    end
-  end
-
   def validate_user_service_ticket!
     return unless signed_in? && session[:service_tickets]
 
@@ -177,14 +149,14 @@ class ApplicationController < ActionController::Base
   end
 
   def check_password_expiration
-    if current_user && current_user.password_expires_at && current_user.password_expires_at < Time.now  && !current_user.ldap_user?
+    if current_user && current_user.password_expires_at && current_user.password_expires_at < Time.now && !current_user.ldap_user?
       redirect_to new_profile_password_path and return
     end
   end
 
   def check_2fa_requirement
-    if two_factor_authentication_required? && current_user && !current_user.two_factor_enabled && !skip_two_factor?
-      redirect_to new_profile_two_factor_auth_path
+    if two_factor_authentication_required? && current_user && !current_user.two_factor_enabled? && !skip_two_factor?
+      redirect_to profile_two_factor_auth_path
     end
   end
 
@@ -201,7 +173,8 @@ class ApplicationController < ActionController::Base
   end
 
   def event_filter
-    filters = cookies['event_filter'].split(',') if cookies['event_filter'].present?
+    # Split using comma to maintain backward compatibility Ex/ "filter1,filter2"
+    filters = cookies['event_filter'].split(',')[0] if cookies['event_filter'].present?
     @event_filter ||= EventFilter.new(filters)
   end
 
@@ -233,7 +206,7 @@ class ApplicationController < ActionController::Base
   end
 
   def configure_permitted_parameters
-    devise_parameter_sanitizer.for(:sign_in) { |u| u.permit(:username, :email, :password, :login, :remember_me, :otp_attempt) }
+    devise_parameter_sanitizer.permit(:sign_in, keys: [:username, :email, :password, :login, :remember_me, :otp_attempt])
   end
 
   def hexdigest(string)
@@ -244,42 +217,6 @@ class ApplicationController < ActionController::Base
     if current_user && current_user.temp_oauth_email?
       redirect_to profile_path, notice: 'Please complete your profile with email address' and return
     end
-  end
-
-  def set_filters_params
-    set_default_sort
-
-    params[:scope] = 'all' if params[:scope].blank?
-    params[:state] = 'opened' if params[:state].blank?
-
-    @sort = params[:sort]
-    @filter_params = params.dup
-
-    if @project
-      @filter_params[:project_id] = @project.id
-    elsif @group
-      @filter_params[:group_id] = @group.id
-    else
-      # TODO: this filter ignore issues/mr created in public or
-      # internal repos where you are not a member. Enable this filter
-      # or improve current implementation to filter only issues you
-      # created or assigned or mentioned
-      #@filter_params[:authorized_only] = true
-    end
-
-    @filter_params
-  end
-
-  def get_issues_collection
-    set_filters_params
-    @issuable_finder = IssuesFinder.new(current_user, @filter_params)
-    @issuable_finder.execute
-  end
-
-  def get_merge_requests_collection
-    set_filters_params
-    @issuable_finder = MergeRequestsFinder.new(current_user, @filter_params)
-    @issuable_finder.execute
   end
 
   def import_sources_enabled?
@@ -310,10 +247,6 @@ class ApplicationController < ActionController::Base
     Gitlab::OAuth::Provider.enabled?(:bitbucket) && Gitlab::BitbucketImport.public_key.present?
   end
 
-  def gitorious_import_enabled?
-    current_application_settings.import_sources.include?('gitorious')
-  end
-
   def google_code_import_enabled?
     current_application_settings.import_sources.include?('google_code')
   end
@@ -324,6 +257,10 @@ class ApplicationController < ActionController::Base
 
   def git_import_enabled?
     current_application_settings.import_sources.include?('git')
+  end
+
+  def gitlab_project_import_enabled?
+    current_application_settings.import_sources.include?('gitlab_project')
   end
 
   def two_factor_authentication_required?
@@ -356,23 +293,10 @@ class ApplicationController < ActionController::Base
     current_user.nil? && root_path == request.path
   end
 
-  private
-
-  def set_default_sort
-    key = if is_a_listing_page_for?('issues') || is_a_listing_page_for?('merge_requests')
-            'issuable_sort'
-          end
-
-    cookies[key]  = params[:sort] if key && params[:sort].present?
-    params[:sort] = cookies[key] if key
-    params[:sort] ||= 'id_desc'
-  end
-
-  def is_a_listing_page_for?(page_type)
-    controller_name, action_name = params.values_at(:controller, :action)
-
-    (controller_name == "projects/#{page_type}" && action_name == 'index') ||
-    (controller_name == 'groups' && action_name == page_type) ||
-    (controller_name == 'dashboard' && action_name == page_type)
+  # U2F (universal 2nd factor) devices need a unique identifier for the application
+  # to perform authentication.
+  # https://developers.yubico.com/U2F/App_ID.html
+  def u2f_app_id
+    request.base_url
   end
 end

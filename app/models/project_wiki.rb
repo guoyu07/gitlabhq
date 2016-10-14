@@ -27,6 +27,10 @@ class ProjectWiki
     @project.path_with_namespace + ".wiki"
   end
 
+  def web_url
+    Gitlab::Routing.url_helpers.namespace_project_wiki_url(@project.namespace, @project, :home)
+  end
+
   def url_to_repo
     gitlab_shell.url_to_repo(path_with_namespace)
   end
@@ -40,7 +44,7 @@ class ProjectWiki
   end
 
   def wiki_base_path
-    ["/", @project.path_with_namespace, "/wikis"].join('')
+    [Gitlab.config.gitlab.relative_url_root, "/", @project.path_with_namespace, "/wikis"].join('')
   end
 
   # Returns the Gollum::Wiki object.
@@ -50,6 +54,10 @@ class ProjectWiki
     rescue Rugged::OSError
       create_repo!
     end
+  end
+
+  def repository_exists?
+    !!repository.exists?
   end
 
   def empty?
@@ -113,7 +121,7 @@ class ProjectWiki
   end
 
   def page_title_and_dir(title)
-    title_array =  title.split("/")
+    title_array = title.split("/")
     title = title_array.pop
     [title, title_array.join("/")]
   end
@@ -142,10 +150,20 @@ class ProjectWiki
     wiki
   end
 
+  def hook_attrs
+    {
+      web_url: web_url,
+      git_ssh_url: ssh_url_to_repo,
+      git_http_url: http_url_to_repo,
+      path_with_namespace: path_with_namespace,
+      default_branch: default_branch
+    }
+  end
+
   private
 
   def init_repo(path_with_namespace)
-    gitlab_shell.add_repository(path_with_namespace)
+    gitlab_shell.add_repository(project.repository_storage_path, path_with_namespace)
   end
 
   def commit_details(action, message = nil, title = nil)
@@ -159,7 +177,7 @@ class ProjectWiki
   end
 
   def path_to_repo
-    @path_to_repo ||= File.join(Gitlab.config.gitlab_shell.repos_path, "#{path_with_namespace}.git")
+    @path_to_repo ||= File.join(project.repository_storage_path, "#{path_with_namespace}.git")
   end
 
   def update_project_activity

@@ -4,6 +4,14 @@
       margin-right: 1px;
     }
   }
+
+  // Border around images in issue and MR descriptions.
+  .description img:not(.emoji) {
+    border: 1px solid $table-border-gray;
+    padding: 5px;
+    margin: 5px;
+    max-height: calc(100vh - 100px);
+  }
 }
 
 .issuable-filter-count {
@@ -29,7 +37,15 @@
   }
 }
 
-.issuable-sidebar {
+.right-sidebar {
+  a {
+    color: inherit;
+  }
+
+  .issuable-header-text {
+    margin-top: 7px;
+  }
+
   .block {
     @include clearfix;
     padding: $gl-padding 0;
@@ -56,10 +72,6 @@
       margin-top: 0;
     }
 
-    .issuable-count {
-      margin-top: 7px;
-    }
-
     .gutter-toggle {
       margin-left: 20px;
       padding-left: 10px;
@@ -68,6 +80,10 @@
         color: $gray-darkest;
       }
     }
+  }
+
+  .block-first {
+    padding-top: 0;
   }
 
   .title {
@@ -89,7 +105,7 @@
   }
 
   .cross-project-reference {
-    color: $gl-link-color;
+    color: inherit;
 
     span {
       white-space: nowrap;
@@ -106,7 +122,8 @@
 
     button {
       float: right;
-      padding: 3px 5px;
+      padding: 1px 5px;
+      background-color: $gray-light;
     }
   }
 
@@ -121,9 +138,10 @@
 
 .right-sidebar {
   position: fixed;
-  top: 58px;
+  top: $header-height;
   bottom: 0;
   right: 0;
+  z-index: 10;
   transition: width .3s;
   background: $gray-light;
   padding: 10px 20px;
@@ -133,10 +151,23 @@
 
     .value {
       line-height: 1;
+
+      .assign-yourself {
+        margin-top: 10px;
+        display: block;
+      }
     }
 
     .bold {
       font-weight: 600;
+    }
+
+    .light {
+      font-weight: normal;
+    }
+
+    .no-value {
+      color: $gl-placeholder-color;
     }
 
     .sidebar-collapsed-icon {
@@ -163,12 +194,6 @@
     }
   }
 
-  .subscribe-button {
-    span {
-      margin-top: 0;
-    }
-  }
-
   &.right-sidebar-collapsed {
     /* Extra small devices (phones, less than 768px) */
     display: none;
@@ -181,7 +206,7 @@
     padding-top: 0;
 
     .block {
-      width: $sidebar_collapsed_width - 1px;
+      width: $sidebar_collapsed_width - 2px;
       margin-left: -19px;
       padding: 15px 0 0;
       border-bottom: none;
@@ -235,27 +260,47 @@
       padding-bottom: 0;
       margin-bottom: 10px;
     }
+
+    .issuable-header-btn {
+      display: none;
+    }
   }
 
-  .btn {
+  .issuable-header-btn {
     background: $gray-normal;
     border: 1px solid $border-gray-normal;
+
     &:hover {
       background: $gray-dark;
       border: 1px solid $border-gray-dark;
     }
+
+    &.btn-primary {
+      @extend .btn-primary
+    }
   }
 
-  a:not(.btn) {
+  a {
     &:hover {
       color: $md-link-color;
       text-decoration: none;
     }
   }
-}
 
-.btn-default.gutter-toggle {
-  margin-top: 4px;
+  .dropdown-content {
+    a:hover {
+      color: inherit;
+    }
+  }
+
+  .dropdown-menu-toggle {
+    width: 100%;
+    padding-top: 6px;
+  }
+
+  .open .dropdown-menu {
+    width: 100%;
+  }
 }
 
 .detail-page-description {
@@ -294,6 +339,83 @@
   margin-left: 5px;
 
   a {
-    color: #8c8c8c;
+    color: $gl-placeholder-color;
+  }
+}
+
+.issuable-form-padding-top {
+  @media (min-width: $screen-sm-min) {
+    padding-top: 7px;
+  }
+}
+
+.issuable-status-box {
+  float: none;
+  display: inline-block;
+  margin-top: 0;
+
+  @media (max-width: $screen-xs-max) {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+}
+
+.issuable-header {
+  position: relative;
+  padding-left: 45px;
+  padding-right: 45px;
+  line-height: 35px;
+
+  @media (min-width: $screen-sm-min) {
+    float: left;
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+.issuable-actions {
+  padding-top: 10px;
+
+  @media (min-width: $screen-sm-min) {
+    float: right;
+    padding-top: 0;
+  }
+}
+
+.issuable-gutter-toggle {
+  @media (max-width: $screen-sm-max) {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+}
+
+.issuable-meta {
+  display: inline-block;
+  line-height: 18px;
+}
+
+.js-issuable-selector-wrap {
+  .js-issuable-selector {
+    width: 100%;
+  }
+  @media (max-width: $screen-sm-max) {
+    margin-bottom: $gl-padding;
+  }
+}
+
+.issuable-list {
+  li {
+    .issue-check {
+      float: left;
+      padding-right: $gl-padding;
+      margin-bottom: 10px;
+      min-width: 15px;
+
+      .selected_issue {
+        vertical-align: text-top;
+      }
+    }
   }
 }

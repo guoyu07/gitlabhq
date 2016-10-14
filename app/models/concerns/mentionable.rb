@@ -14,16 +14,16 @@ module Mentionable
       attr = attr.to_s
       mentionable_attrs << [attr, options]
     end
-
-    # Accessor for attributes marked mentionable.
-    def mentionable_attrs
-      @mentionable_attrs ||= []
-    end
   end
 
   included do
+    # Accessor for attributes marked mentionable.
+    cattr_accessor :mentionable_attrs, instance_accessor: false do
+      []
+    end
+
     if self < Participable
-      participant ->(current_user) { mentioned_users(current_user) }
+      participant -> (user, ext) { all_references(user, extractor: ext) }
     end
   end
 
@@ -43,23 +43,18 @@ module Mentionable
     self
   end
 
-  def all_references(current_user = self.author, text = nil)
-    ext = Gitlab::ReferenceExtractor.new(self.project, current_user, self.author)
+  def all_references(current_user = nil, extractor: nil)
+    extractor ||= Gitlab::ReferenceExtractor.
+      new(project, current_user)
 
-    if text
-      ext.analyze(text)
-    else
-      self.class.mentionable_attrs.each do |attr, options|
-        text = send(attr)
+    self.class.mentionable_attrs.each do |attr, options|
+      text    = __send__(attr)
+      options = options.merge(cache_key: [self, attr], author: author)
 
-        context = options.dup
-        context[:cache_key] = [self, attr] if context.delete(:cache) && self.persisted?
-
-        ext.analyze(text, context)
-      end
+      extractor.analyze(text, options)
     end
 
-    ext
+    extractor
   end
 
   def mentioned_users(current_user = nil)
@@ -67,8 +62,8 @@ module Mentionable
   end
 
   # Extract GFM references to other Mentionables from this Mentionable. Always excludes its #local_reference.
-  def referenced_mentionables(current_user = self.author, text = nil)
-    refs = all_references(current_user, text)
+  def referenced_mentionables(current_user = self.author)
+    refs = all_references(current_user)
     refs = (refs.issues + refs.merge_requests + refs.commits)
 
     # We're using this method instead of Array diffing because that requires
@@ -78,8 +73,8 @@ module Mentionable
   end
 
   # Create a cross-reference Note for each GFM reference to another Mentionable found in the +mentionable_attrs+.
-  def create_cross_references!(author = self.author, without = [], text = nil)
-    refs = referenced_mentionables(author, text)
+  def create_cross_references!(author = self.author, without = [])
+    refs = referenced_mentionables(author)
 
     # We're using this method instead of Array diffing because that requires
     # both of the object's `hash` values to be the same, which may not be the
@@ -98,10 +93,7 @@ module Mentionable
 
     return if changes.empty?
 
-    original_text = changes.collect { |_, vals| vals.first }.join(' ')
-
-    preexisting = referenced_mentionables(author, original_text)
-    create_cross_references!(author, preexisting)
+    create_cross_references!(author)
   end
 
   private

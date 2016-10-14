@@ -1,32 +1,13 @@
-# == Schema Information
-#
-# Table name: services
-#
-#  id                    :integer          not null, primary key
-#  type                  :string(255)
-#  title                 :string(255)
-#  project_id            :integer
-#  created_at            :datetime
-#  updated_at            :datetime
-#  active                :boolean          default(FALSE), not null
-#  properties            :text
-#  template              :boolean          default(FALSE)
-#  push_events           :boolean          default(TRUE)
-#  issues_events         :boolean          default(TRUE)
-#  merge_requests_events :boolean          default(TRUE)
-#  tag_push_events       :boolean          default(TRUE)
-#  note_events           :boolean          default(TRUE), not null
-#  build_events          :boolean          default(FALSE), not null
-#
-
 class JiraService < IssueTrackerService
   include HTTParty
-  include Gitlab::Application.routes.url_helpers
+  include Gitlab::Routing.url_helpers
 
   DEFAULT_API_VERSION = 2
 
   prop_accessor :username, :password, :api_url, :jira_issue_transition_id,
                 :title, :description, :project_url, :issues_url, :new_issue_url
+
+  validates :api_url, presence: true, url: true, if: :activated?
 
   before_validation :set_api_url, :set_jira_issue_transition_id
 
@@ -143,7 +124,7 @@ class JiraService < IssueTrackerService
 
   def build_api_url_from_project_url
     server = URI(project_url)
-    default_ports = [["http",80],["https",443]].include?([server.scheme,server.port])
+    default_ports = [["http", 80], ["https", 443]].include?([server.scheme, server.port])
     server_url = "#{server.scheme}://#{server.host}"
     server_url.concat(":#{server.port}") unless default_ports
     "#{server_url}/rest/api/#{DEFAULT_API_VERSION}"
@@ -163,7 +144,7 @@ class JiraService < IssueTrackerService
     commit_id = if entity.is_a?(Commit)
                   entity.id
                 elsif entity.is_a?(MergeRequest)
-                  entity.last_commit.id
+                  entity.diff_head_sha
                 end
     commit_url = build_entity_url(:commit, commit_id)
 
@@ -208,7 +189,6 @@ class JiraService < IssueTrackerService
       send_message(url, message.to_json)
     end
   end
-
 
   def auth
     require 'base64'

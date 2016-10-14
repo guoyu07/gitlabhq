@@ -30,11 +30,13 @@ Feature: Search
     Then I should see "Foo" link in the search results
     And I should not see "Bar" link in the search results
 
+  @javascript
   Scenario: I should see project code I am looking for
     When I click project "Shop" link
     And I search for "rspec"
     Then I should see code results for project "Shop"
 
+  @javascript
   Scenario: I should see project issues
     And project has issues
     When I click project "Shop" link
@@ -43,6 +45,7 @@ Feature: Search
     Then I should see "Foo" link in the search results
     And I should not see "Bar" link in the search results
 
+  @javascript
   Scenario: I should see project merge requests
     And project has merge requests
     When I click project "Shop" link
@@ -51,6 +54,7 @@ Feature: Search
     Then I should see "Foo" link in the search results
     And I should not see "Bar" link in the search results
 
+  @javascript
   Scenario: I should see project milestones
     And project has milestones
     When I click project "Shop" link
@@ -59,6 +63,7 @@ Feature: Search
     Then I should see "Foo" link in the search results
     And I should not see "Bar" link in the search results
 
+  @javascript
   Scenario: I should see Wiki blobs
     And project has Wiki content
     When I click project "Shop" link
@@ -68,13 +73,15 @@ Feature: Search
 
   Scenario: I logout and should see project I am looking for
     Given project "Shop" is public
-    And I logout
+    And I logout directly
+    And I visit dashboard search page
     And I search for "Sho"
     Then I should see "Shop" project link
 
   Scenario: I logout and should see issues I am looking for
     Given project "Shop" is public
-    And I logout
+    And I logout directly
+    And I visit dashboard search page
     And project has issues
     When I search for "Foo"
     And I click "Issues" link
@@ -83,7 +90,7 @@ Feature: Search
 
   Scenario: I logout and should see project code I am looking for
     Given project "Shop" is public
-    And I logout
+    And I logout directly
     When I visit project "Shop" page
     And I search for "rspec" on project page
     Then I should see code results for project "Shop"

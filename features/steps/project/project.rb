@@ -5,7 +5,7 @@ class Spinach::Features::Project < Spinach::FeatureSteps
 
   step 'change project settings' do
     fill_in 'project_name_edit', with: 'NewName'
-    uncheck 'project_issues_enabled'
+    select 'Disabled', from: 'project_project_feature_attributes_issues_access_level'
   end
 
   step 'I save project' do
@@ -114,7 +114,9 @@ class Spinach::Features::Project < Spinach::FeatureSteps
   end
 
   step 'I should not see "Snippets" button' do
-    expect(page).not_to have_link 'Snippets'
+    page.within '.content' do
+      expect(page).not_to have_link 'Snippets'
+    end
   end
 
   step 'project "Shop" belongs to group' do
@@ -123,16 +125,8 @@ class Spinach::Features::Project < Spinach::FeatureSteps
     @project.save!
   end
 
-  step 'I should see back to dashboard button' do
-    expect(page).to have_content 'Go to dashboard'
-  end
-
-  step 'I should see back to group button' do
-    expect(page).to have_content 'Go to group'
-  end
-
   step 'I click notifications drop down button' do
-    click_link 'notifications-button'
+    first('.notifications-btn').click
   end
 
   step 'I choose Mention setting' do
@@ -140,8 +134,8 @@ class Spinach::Features::Project < Spinach::FeatureSteps
   end
 
   step 'I should see Notification saved message' do
-    page.within '.flash-container' do
-      expect(page).to have_content 'Notification settings saved'
+    page.within '#notifications-button' do
+      expect(page).to have_content 'On mention'
     end
   end
 

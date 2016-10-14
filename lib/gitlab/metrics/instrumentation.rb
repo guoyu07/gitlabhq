@@ -9,10 +9,15 @@ module Gitlab
     #
     #     Gitlab::Metrics::Instrumentation.instrument_method(User, :by_login)
     module Instrumentation
-      SERIES = 'method_calls'
+      PROXY_IVAR = :@__gitlab_instrumentation_proxy
 
       def self.configure
         yield self
+      end
+
+      # Returns the name of the series to use for storing method calls.
+      def self.series
+        @series ||= "#{Metrics.series_prefix}method_calls"
       end
 
       # Instruments a class method.
@@ -54,7 +59,7 @@ module Gitlab
         end
       end
 
-      # Instruments all public methods of a module.
+      # Instruments all public and private methods of a module.
       #
       # This method optionally takes a block that can be used to determine if a
       # method should be instrumented or not. The block is passed the receiving
@@ -63,7 +68,8 @@ module Gitlab
       #
       # mod - The module to instrument.
       def self.instrument_methods(mod)
-        mod.public_methods(false).each do |name|
+        methods = mod.methods(false) + mod.private_methods(false)
+        methods.each do |name|
           method = mod.method(name)
 
           if method.owner == mod.singleton_class
@@ -74,13 +80,14 @@ module Gitlab
         end
       end
 
-      # Instruments all public instance methods of a module.
+      # Instruments all public and private instance methods of a module.
       #
       # See `instrument_methods` for more information.
       #
       # mod - The module to instrument.
       def self.instrument_instance_methods(mod)
-        mod.public_instance_methods(false).each do |name|
+        methods = mod.instance_methods(false) + mod.private_instance_methods(false)
+        methods.each do |name|
           method = mod.instance_method(name)
 
           if method.owner == mod
@@ -91,6 +98,18 @@ module Gitlab
         end
       end
 
+      # Returns true if a module is instrumented.
+      #
+      # mod - The module to check
+      def self.instrumented?(mod)
+        mod.instance_variable_defined?(PROXY_IVAR)
+      end
+
+      # Returns the proxy module (if any) of `mod`.
+      def self.proxy_module(mod)
+        mod.instance_variable_get(PROXY_IVAR)
+      end
+
       # Instruments a method.
       #
       # type - The type (:class or :instance) of method to instrument.
@@ -99,9 +118,8 @@ module Gitlab
       def self.instrument(type, mod, name)
         return unless Metrics.enabled?
 
-        name       = name.to_sym
-        alias_name = :"_original_#{name}"
-        target     = type == :instance ? mod : mod.singleton_class
+        name   = name.to_sym
+        target = type == :instance ? mod : mod.singleton_class
 
         if type == :instance
           target = mod
@@ -113,6 +131,12 @@ module Gitlab
           method = mod.method(name)
         end
 
+        unless instrumented?(target)
+          target.instance_variable_set(PROXY_IVAR, Module.new)
+        end
+
+        proxy_module = self.proxy_module(target)
+
         # Some code out there (e.g. the "state_machine" Gem) checks the arity of
         # a method to make sure it only passes arguments when the method expects
         # any. If we were to always overwrite a method to take an `*args`
@@ -120,38 +144,22 @@ module Gitlab
         # generated method _only_ accepts regular arguments if the underlying
         # method also accepts them.
         if method.arity == 0
-          args_signature = '&block'
+          args_signature = ''
         else
-          args_signature = '*args, &block'
+          args_signature = '*args'
         end
 
-        send_signature = "__send__(#{alias_name.inspect}, #{args_signature})"
-
-        target.class_eval <<-EOF, __FILE__, __LINE__ + 1
-          alias_method #{alias_name.inspect}, #{name.inspect}
-
+        proxy_module.class_eval <<-EOF, __FILE__, __LINE__ + 1
           def #{name}(#{args_signature})
-            trans = Gitlab::Metrics::Instrumentation.transaction
-
-            if trans
-              start    = Time.now
-              retval   = #{send_signature}
-              duration = (Time.now - start) * 1000.0
-
-              if duration >= Gitlab::Metrics.method_call_threshold
-                trans.increment(:method_duration, duration)
-
-                trans.add_metric(Gitlab::Metrics::Instrumentation::SERIES,
-                                 { duration: duration },
-                                 method: #{label.inspect})
-              end
-
-              retval
+            if trans = Gitlab::Metrics::Instrumentation.transaction
+              trans.method_call_for(#{label.to_sym.inspect}).measure { super }
             else
-              #{send_signature}
+              super
             end
           end
         EOF
+
+        target.prepend(proxy_module)
       end
 
       # Small layer of indirection to make it easier to stub out the current

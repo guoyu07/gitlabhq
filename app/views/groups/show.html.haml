@@ -4,30 +4,26 @@
   - if current_user
     = auto_discovery_link_tag(:atom, group_url(@group, format: :atom, private_token: current_user.private_token), title: "#{@group.name} activity")
 
-.cover-block
-  .cover-controls
-    - if @group && can?(current_user, :admin_group, @group)
-      = link_to icon('pencil'), edit_group_path(@group), class: 'btn'
-    - if current_user
-      = link_to icon('rss'), group_path(@group, { format: :atom, private_token: current_user.private_token }), title: "Feed", class: 'btn rss-btn'
+.cover-block.groups-cover-block
+  %div{ class: container_class }
+    = image_tag group_icon(@group), class: "avatar group-avatar s70 avatar-tile"
+    .group-info
+      .cover-title
+        %h1
+          @#{@group.path}
+          %span.visibility-icon.has-tooltip{ data: { container: 'body' }, title: visibility_icon_description(@group) }
+            = visibility_level_icon(@group.visibility_level, fw: false)
 
-  .avatar-holder
-    = link_to group_icon(@group), target: '_blank' do
-      = image_tag group_icon(@group), class: "avatar group-avatar s90"
-  .cover-title
-    %h1
-      = @group.name
-      %span.visibility-icon.has_tooltip{ data: { container: 'body' }, title: visibility_icon_description(@group) }
-        = visibility_level_icon(@group.visibility_level, fw: false)
+        .group-right-buttons.btn-group
+          - if current_user
+            .pull-left.append-right-10= render 'shared/members/access_request_buttons', source: @group
+          = render 'shared/notifications/button', notification_setting: @notification_setting
 
-  .cover-desc.username
-    @#{@group.path}
+      - if @group.description.present?
+        .cover-desc.description
+          = markdown_field(@group, :description)
 
-  - if @group.description.present?
-    .cover-desc.description
-      = markdown(@group.description, pipeline: :description)
-
-%div{ class: container_class }
+%div.groups-header{ class: container_class }
   .top-area
     %ul.nav-links
       %li.active
@@ -38,12 +34,11 @@
           = link_to "#shared", 'data-toggle' => 'tab' do
             Shared Projects
     .nav-controls
-      = form_tag request.original_url, method: :get, class: 'project-filter-form', id: 'project-filter-form' do |f|
+      = form_tag request.path, method: :get, class: 'project-filter-form', id: 'project-filter-form' do |f|
         = search_field_tag :filter_projects, nil, placeholder: 'Filter by name', class: 'projects-list-filter form-control', spellcheck: false
       = render 'shared/projects/dropdown'
       - if can? current_user, :create_projects, @group
         = link_to new_project_path(namespace_id: @group.id), class: 'btn btn-new pull-right' do
-          = icon('plus')
           New Project
 
   .tab-content

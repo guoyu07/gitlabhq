@@ -1,14 +1,14 @@
-# encoding: utf-8
 class FileUploader < CarrierWave::Uploader::Base
   include UploaderHelper
+  MARKDOWN_PATTERN = %r{\!?\[.*?\]\(/uploads/(?<secret>[0-9a-f]{32})/(?<file>.*?)\)}
 
   storage :file
 
   attr_accessor :project, :secret
 
-  def initialize(project, secret = self.class.generate_secret)
+  def initialize(project, secret = nil)
     @project = project
-    @secret = secret
+    @secret = secret || self.class.generate_secret
   end
 
   def base_dir
@@ -23,26 +23,29 @@ class FileUploader < CarrierWave::Uploader::Base
     File.join(base_dir, 'tmp', @project.path_with_namespace, @secret)
   end
 
-  def self.generate_secret
-    SecureRandom.hex
-  end
-
   def secure_url
     File.join("/uploads", @secret, file.filename)
   end
 
+  def to_markdown
+    to_h[:markdown]
+  end
+
   def to_h
-    filename = image? ? self.file.basename : self.file.filename
+    filename = image_or_video? ? self.file.basename : self.file.filename
     escaped_filename = filename.gsub("]", "\\]")
 
     markdown = "[#{escaped_filename}](#{self.secure_url})"
-    markdown.prepend("!") if image?
+    markdown.prepend("!") if image_or_video?
 
     {
       alt:      filename,
       url:      self.secure_url,
-      is_image: image?,
       markdown: markdown
     }
+  end
+
+  def self.generate_secret
+    SecureRandom.hex
   end
 end

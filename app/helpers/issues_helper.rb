@@ -13,34 +13,20 @@ module IssuesHelper
     OpenStruct.new(id: 0, title: 'None (backlog)', name: 'Unassigned')
   end
 
-  def url_for_project_issues(project = @project, options = {})
-    return '' if project.nil?
-
-    if options[:only_path]
-      project.issues_tracker.project_path
-    else
-      project.issues_tracker.project_url
-    end
-  end
-
-  def url_for_new_issue(project = @project, options = {})
-    return '' if project.nil?
-
-    if options[:only_path]
-      project.issues_tracker.new_issue_path
-    else
-      project.issues_tracker.new_issue_url
-    end
-  end
-
   def url_for_issue(issue_iid, project = @project, options = {})
     return '' if project.nil?
 
-    if options[:only_path]
-      project.issues_tracker.issue_path(issue_iid)
-    else
-      project.issues_tracker.issue_url(issue_iid)
-    end
+    url =
+      if options[:only_path]
+        project.issues_tracker.issue_path(issue_iid)
+      else
+        project.issues_tracker.issue_url(issue_iid)
+      end
+
+    # Ensure we return a valid URL to prevent possible XSS.
+    URI.parse(url).to_s
+  rescue URI::InvalidURIError
+    ''
   end
 
   def bulk_update_milestone_options
@@ -52,6 +38,7 @@ module IssuesHelper
 
   def milestone_options(object)
     milestones = object.project.milestones.active.reorder(due_date: :asc, title: :asc).to_a
+    milestones.unshift(object.milestone) if object.milestone.present? && object.milestone.closed?
     milestones.unshift(Milestone::None)
 
     options_from_collection_for_select(milestones, 'id', 'title', object.milestone_id)
@@ -86,23 +73,6 @@ module IssuesHelper
     return 'hidden' if issue.closed? == closed
   end
 
-  def issue_to_atom(xml, issue)
-    xml.entry do
-      xml.id      namespace_project_issue_url(issue.project.namespace,
-                                              issue.project, issue)
-      xml.link    href: namespace_project_issue_url(issue.project.namespace,
-                                                    issue.project, issue)
-      xml.title   truncate(issue.title, length: 80)
-      xml.updated issue.created_at.xmlschema
-      xml.media   :thumbnail, width: "40", height: "40", url: image_url(avatar_icon(issue.author_email))
-      xml.author do |author|
-        xml.name issue.author_name
-        xml.email issue.author_email
-      end
-      xml.summary issue.title
-    end
-  end
-
   def merge_requests_sentence(merge_requests)
     # Sorting based on the `!123` or `group/project!123` reference will sort
     # local merge requests first.
@@ -115,29 +85,49 @@ module IssuesHelper
     icon('eye-slash') if issue.confidential?
   end
 
-  def emoji_icon(name, unicode = nil, aliases = [])
-    unicode ||= Emoji.emoji_filename(name) rescue ""
+  def emoji_icon(name, unicode = nil, aliases = [], sprite: true)
+    unicode ||= Gitlab::Emoji.emoji_filename(name) rescue ""
 
-    content_tag :div, "",
-      class: "icon emoji-icon emoji-#{unicode}",
-      title: name,
-      data: {
-        aliases: aliases.join(' '),
-        emoji: name,
-        unicode_name: unicode
-      }
+    data = {
+      aliases: aliases.join(" "),
+      emoji: name,
+      unicode_name: unicode
+    }
+
+    if sprite
+      # Emoji icons for the emoji menu, these use a spritesheet.
+      content_tag :div, "",
+        class: "icon emoji-icon emoji-#{unicode}",
+        title: name,
+        data: data
+    else
+      # Emoji icons displayed separately, used for the awards already given
+      # to an issue or merge request.
+      content_tag :img, "",
+        class: "icon emoji",
+        title: name,
+        height: "20px",
+        width: "20px",
+        src: url_to_image("#{unicode}.png"),
+        data: data
+    end
   end
 
-  def emoji_author_list(notes, current_user)
-    list = notes.map do |note|
-             note.author == current_user ? "me" : note.author.name
-           end
+  def award_user_list(awards, current_user, limit: 10)
+    names = awards.map do |award|
+      award.user == current_user ? 'You' : award.user.name
+    end
 
-    list.join(", ")
+    current_user_name = names.delete('You')
+    names = names.insert(0, current_user_name).compact.first(limit)
+
+    names << "#{awards.size - names.size} more." if awards.size > names.size
+
+    names.to_sentence
   end
 
-  def note_active_class(notes, current_user)
-    if current_user && notes.pluck(:author_id).include?(current_user.id)
+  def award_active_class(awards, current_user)
+    if current_user && awards.find { |a| a.user_id == current_user.id }
       "active"
     else
       ""
@@ -154,6 +144,18 @@ module IssuesHelper
         2
       end
     end.to_h
+  end
+
+  def due_date_options
+    options = [
+      Issue::AnyDueDate,
+      Issue::NoDueDate,
+      Issue::DueThisWeek,
+      Issue::DueThisMonth,
+      Issue::Overdue
+    ]
+
+    options_from_collection_for_select(options, 'name', 'title', params[:due_date])
   end
 
   # Required for Banzai::Filter::IssueReferenceFilter

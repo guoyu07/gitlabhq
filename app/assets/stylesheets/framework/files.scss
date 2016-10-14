@@ -3,12 +3,14 @@
  *
  */
 .file-holder {
-  border: none;
   border: 1px solid $border-color;
 
+  &.file-holder-no-border {
+    border: 0;
+  }
+
   &.readme-holder {
-    margin-top: 10px;
-    border-bottom: 0;
+    margin: $gl-padding-top 0;
   }
 
   table {
@@ -17,14 +19,34 @@
 
   .file-title {
     position: relative;
-    background: $background-color;
+    background-color: $background-color;
     border-bottom: 1px solid $border-color;
     margin: 0;
     text-align: left;
     padding: 10px $gl-padding;
+    word-wrap: break-word;
+    border-radius: 3px 3px 0 0;
+    cursor: pointer;
+
+    &:hover {
+      background-color: $dark-background-color;
+    }
+
+    .diff-toggle-caret {
+      padding-right: 6px; 
+    }
+
+    &.file-title-clear {
+      padding-left: 0;
+      padding-right: 0;
+      background-color: transparent;
+
+      .file-actions {
+        right: 0;
+      }
+    }
 
     .file-actions {
-      float: right;
       position: absolute;
       top: 5px;
       right: 15px;
@@ -36,18 +58,8 @@
       }
     }
 
-    .filename {
-      &.old {
-        span.idiff {
-          background-color: #f8cbcb;
-        }
-      }
-
-      &.new {
-        span.idiff {
-          background-color: #a6f3a6;
-        }
-      }
+    a:not(.btn) {
+      color: $gl-text-color;
     }
 
     .left-options {
@@ -60,14 +72,15 @@
     &.image_file {
       background: #eee;
       text-align: center;
+
       img {
-        padding: 100px;
-        max-width: 50%;
+        padding: 20px;
+        max-width: 80%;
       }
     }
 
     &.wiki {
-      padding: $gl-padding;
+      padding: 30px $gl-padding;
 
       .highlight {
         margin-bottom: 9px;
@@ -76,10 +89,6 @@
           margin: 0;
         }
       }
-    }
-
-    &.blob_file {
-
     }
 
     &.blob-no-preview {
@@ -94,7 +103,6 @@
     &.blame {
       table {
         border: none;
-        box-shadow: none;
         margin: 0;
       }
       tr {
@@ -108,32 +116,22 @@
           border-right: none;
         }
       }
-      img.avatar {
-        border: 0 none;
-        float: none;
-        margin: 0;
-        padding: 0;
-      }
       td.blame-commit {
-        background: #f9f9f9;
-        min-width: 350px;
-
-        .commit-author-link {
-          color: #888;
-        }
+        padding: 0 10px;
+        min-width: 400px;
+        background: $gray-light;
       }
       td.line-numbers {
         float: none;
         border-left: 1px solid #ddd;
+
+        i {
+          float: none;
+          margin-right: 0;
+        }
       }
       td.lines {
         padding: 0;
-        code {
-          font-family: $monospace_font;
-        }
-        pre {
-          margin: 0;
-        }
       }
     }
 

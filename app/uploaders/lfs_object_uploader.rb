@@ -1,10 +1,8 @@
-# encoding: utf-8
-
 class LfsObjectUploader < CarrierWave::Uploader::Base
   storage :file
 
   def store_dir
-    "#{Gitlab.config.lfs.storage_path}/#{model.oid[0,2]}/#{model.oid[2,2]}"
+    "#{Gitlab.config.lfs.storage_path}/#{model.oid[0, 2]}/#{model.oid[2, 2]}"
   end
 
   def cache_dir

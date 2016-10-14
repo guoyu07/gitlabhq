@@ -10,7 +10,7 @@ class SlackService
 
     def initialize(params)
       params = HashWithIndifferentAccess.new(params)
-      @user_name = params[:user][:name]
+      @user_name = params[:user][:username]
       @project_name = params[:project_name]
       @project_url = params[:project_url]
 
@@ -58,7 +58,7 @@ class SlackService
 
     def create_merge_note(merge_request)
       commented_on_message(
-        "[merge request ##{merge_request[:iid]}](#{@note_url})",
+        "[merge request !#{merge_request[:iid]}](#{@note_url})",
         format_title(merge_request[:title]))
     end
 

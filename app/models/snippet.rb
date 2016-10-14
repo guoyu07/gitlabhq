@@ -1,25 +1,20 @@
-# == Schema Information
-#
-# Table name: snippets
-#
-#  id               :integer          not null, primary key
-#  title            :string(255)
-#  content          :text
-#  author_id        :integer          not null
-#  project_id       :integer
-#  created_at       :datetime
-#  updated_at       :datetime
-#  file_name        :string(255)
-#  type             :string(255)
-#  visibility_level :integer          default(0), not null
-#
-
 class Snippet < ActiveRecord::Base
   include Gitlab::VisibilityLevel
   include Linguist::BlobHelper
+  include CacheMarkdownField
   include Participable
   include Referable
   include Sortable
+  include Awardable
+
+  cache_markdown_field :title, pipeline: :single_line
+  cache_markdown_field :content
+
+  # If file_name changes, it invalidates content
+  alias_method :default_content_html_invalidator, :content_html_invalidated?
+  def content_html_invalidated?
+    default_content_html_invalidator || file_name_changed?
+  end
 
   default_value_for :visibility_level, Snippet::PRIVATE
 
@@ -36,6 +31,7 @@ class Snippet < ActiveRecord::Base
     length: { within: 0..255 },
     format: { with: Gitlab::Regex.file_name_regex,
               message: Gitlab::Regex.file_name_regex_message }
+
   validates :content, presence: true
   validates :visibility_level, inclusion: { in: Gitlab::VisibilityLevel.values }
 
@@ -46,7 +42,8 @@ class Snippet < ActiveRecord::Base
   scope :public_and_internal, -> { where(visibility_level: [Snippet::PUBLIC, Snippet::INTERNAL]) }
   scope :fresh,   -> { order("created_at DESC") }
 
-  participant :author, :notes
+  participant :author
+  participant :notes_with_associations
 
   def self.reference_prefix
     '$'
@@ -56,14 +53,14 @@ class Snippet < ActiveRecord::Base
   #
   # This pattern supports cross-project references.
   def self.reference_pattern
-    %r{
+    @reference_pattern ||= %r{
       (#{Project.reference_pattern})?
       #{Regexp.escape(reference_prefix)}(?<snippet>\d+)
     }x
   end
 
   def self.link_reference_pattern
-    super("snippets", /(?<snippet>\d+)/)
+    @link_reference_pattern ||= super("snippets", /(?<snippet>\d+)/)
   end
 
   def to_reference(from_project = nil)
@@ -96,6 +93,11 @@ class Snippet < ActiveRecord::Base
     0
   end
 
+  # alias for compatibility with blobs and highlighting
+  def path
+    file_name
+  end
+
   def name
     file_name
   end
@@ -110,6 +112,14 @@ class Snippet < ActiveRecord::Base
 
   def visibility_level_field
     visibility_level
+  end
+
+  def no_highlighting?
+    content.lines.count > 1000
+  end
+
+  def notes_with_associations
+    notes.includes(:author)
   end
 
   class << self
@@ -142,7 +152,16 @@ class Snippet < ActiveRecord::Base
     end
 
     def accessible_to(user)
-      where('visibility_level IN (?) OR author_id = ?', [Snippet::INTERNAL, Snippet::PUBLIC], user)
+      return are_public unless user.present?
+      return all if user.admin?
+
+      where(
+        'visibility_level IN (:visibility_levels)
+         OR author_id = :author_id
+         OR project_id IN (:project_ids)',
+         visibility_levels: [Snippet::PUBLIC, Snippet::INTERNAL],
+         author_id: user.id,
+         project_ids: user.authorized_projects.select(:id))
     end
   end
 end

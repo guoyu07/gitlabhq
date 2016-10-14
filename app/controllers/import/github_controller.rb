@@ -1,11 +1,26 @@
 class Import::GithubController < Import::BaseController
   before_action :verify_github_import_enabled
-  before_action :github_auth, except: :callback
+  before_action :github_auth, only: [:status, :jobs, :create]
 
   rescue_from Octokit::Unauthorized, with: :github_unauthorized
 
+  helper_method :logged_in_with_github?
+
+  def new
+    if logged_in_with_github?
+      go_to_github_for_permissions
+    elsif session[:github_access_token]
+      redirect_to status_import_github_url
+    end
+  end
+
   def callback
     session[:github_access_token] = client.get_token(params[:code])
+    redirect_to status_import_github_url
+  end
+
+  def personal_access_token
+    session[:github_access_token] = params[:personal_access_token]
     redirect_to status_import_github_url
   end
 
@@ -25,15 +40,15 @@ class Import::GithubController < Import::BaseController
   def create
     @repo_id = params[:repo_id].to_i
     repo = client.repo(@repo_id)
-    @project_name = repo.name
+    @project_name = params[:new_name].presence || repo.name
+    namespace_path = params[:target_namespace].presence || current_user.namespace_path
+    @target_namespace = find_or_create_namespace(namespace_path, current_user.namespace_path)
 
-    repo_owner = repo.owner.login
-    repo_owner = current_user.username if repo_owner == client.user.login
-    @target_namespace = params[:new_namespace].presence || repo_owner
-
-    namespace = get_or_create_namespace || (render and return)
-
-    @project = Gitlab::GithubImport::ProjectCreator.new(repo, namespace, current_user, access_params).execute
+    if current_user.can?(:create_projects, @target_namespace)
+      @project = Gitlab::GithubImport::ProjectCreator.new(repo, @project_name, @target_namespace, current_user, access_params).execute
+    else
+      render 'unauthorized'
+    end
   end
 
   private
@@ -57,10 +72,14 @@ class Import::GithubController < Import::BaseController
   end
 
   def github_unauthorized
-    go_to_github_for_permissions
+    session[:github_access_token] = nil
+    redirect_to new_import_github_url,
+      alert: 'Access denied to your GitHub account.'
   end
 
-  private
+  def logged_in_with_github?
+    current_user.identities.exists?(provider: 'github')
+  end
 
   def access_params
     { github_access_token: session[:github_access_token] }

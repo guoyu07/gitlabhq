@@ -26,7 +26,7 @@ class Projects::ApplicationController < ApplicationController
       project_path = "#{namespace}/#{id}"
       @project = Project.find_with_namespace(project_path)
 
-      if @project && can?(current_user, :read_project, @project)
+      if can?(current_user, :read_project, @project) && !@project.pending_delete?
         if @project.path_with_namespace != project_path
           redirect_to request.original_url.gsub(project_path, @project.path_with_namespace)
         end
@@ -68,11 +68,13 @@ class Projects::ApplicationController < ApplicationController
   end
 
   def require_non_empty_project
-    redirect_to namespace_project_path(@project.namespace, @project) if @project.empty_repo?
+    # Be sure to return status code 303 to avoid a double DELETE:
+    # http://api.rubyonrails.org/classes/ActionController/Redirecting.html
+    redirect_to namespace_project_path(@project.namespace, @project), status: 303 if @project.empty_repo?
   end
 
   def require_branch_head
-    unless @repository.branch_names.include?(@ref)
+    unless @repository.branch_exists?(@ref)
       redirect_to(
         namespace_project_tree_path(@project.namespace, @project, @ref),
         notice: "This action is not allowed unless you are on a branch"
@@ -81,11 +83,11 @@ class Projects::ApplicationController < ApplicationController
   end
 
   def apply_diff_view_cookie!
-    view = params[:view] || cookies[:diff_view]
-    cookies.permanent[:diff_view] = params[:view] = view if view
+    @show_changes_tab = params[:view].present?
+    cookies.permanent[:diff_view] = params.delete(:view) if params[:view].present?
   end
 
   def builds_enabled
-    return render_404 unless @project.builds_enabled?
+    return render_404 unless @project.feature_available?(:builds, current_user)
   end
 end

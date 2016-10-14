@@ -1,9 +1,12 @@
 class Projects::NotesController < Projects::ApplicationController
+  include ToggleAwardEmoji
+
   # Authorize
   before_action :authorize_read_note!
   before_action :authorize_create_note!, only: [:create]
   before_action :authorize_admin_note!, only: [:update, :destroy]
-  before_action :find_current_user_notes, except: [:destroy, :delete_attachment, :award_toggle]
+  before_action :authorize_resolve_note!, only: [:resolve, :unresolve]
+  before_action :find_current_user_notes, only: [:index]
 
   def index
     current_fetched_at = Time.now.to_i
@@ -22,6 +25,10 @@ class Projects::NotesController < Projects::ApplicationController
   def create
     @note = Notes::CreateService.new(project, current_user, note_params).execute
 
+    if @note.is_a?(Note)
+      Banzai::NoteRenderer.render([@note], @project, current_user)
+    end
+
     respond_to do |format|
       format.json { render json: note_json(@note) }
       format.html { redirect_back_or_default }
@@ -31,6 +38,10 @@ class Projects::NotesController < Projects::ApplicationController
   def update
     @note = Notes::UpdateService.new(project, current_user, note_params).execute(note)
 
+    if @note.is_a?(Note)
+      Banzai::NoteRenderer.render([@note], @project, current_user)
+    end
+
     respond_to do |format|
       format.json { render json: note_json(@note) }
       format.html { redirect_back_or_default }
@@ -39,12 +50,11 @@ class Projects::NotesController < Projects::ApplicationController
 
   def destroy
     if note.editable?
-      note.destroy
-      note.reset_events_cache
+      Notes::DeleteService.new(project, current_user).execute(note)
     end
 
     respond_to do |format|
-      format.js { render nothing: true }
+      format.js { head :ok }
     end
   end
 
@@ -53,32 +63,35 @@ class Projects::NotesController < Projects::ApplicationController
     note.update_attribute(:attachment, nil)
 
     respond_to do |format|
-      format.js { render nothing: true }
+      format.js { head :ok }
     end
   end
 
-  def award_toggle
-    noteable = if note_params[:noteable_type] == "issue"
-                 project.issues.find(note_params[:noteable_id])
-               else
-                 project.merge_requests.find(note_params[:noteable_id])
-               end
+  def resolve
+    return render_404 unless note.resolvable?
 
-    data = {
-      author: current_user,
-      is_award: true,
-      note: note_params[:note].delete(":")
+    note.resolve!(current_user)
+
+    MergeRequests::ResolvedDiscussionNotificationService.new(project, current_user).execute(note.noteable)
+
+    discussion = note.discussion
+
+    render json: {
+      resolved_by: note.resolved_by.try(:name),
+      discussion_headline_html: (view_to_html_string('discussions/_headline', discussion: discussion) if discussion)
     }
+  end
 
-    note = noteable.notes.find_by(data)
+  def unresolve
+    return render_404 unless note.resolvable?
 
-    if note
-      note.destroy
-    else
-      Notes::CreateService.new(project, current_user, note_params).execute
-    end
+    note.unresolve!
 
-    render json: { ok: true }
+    discussion = note.discussion
+
+    render json: {
+      discussion_headline_html: (view_to_html_string('discussions/_headline', discussion: discussion) if discussion)
+    }
   end
 
   private
@@ -86,8 +99,9 @@ class Projects::NotesController < Projects::ApplicationController
   def note
     @note ||= @project.notes.find(params[:id])
   end
+  alias_method :awardable, :note
 
-  def note_to_html(note)
+  def note_html(note)
     render_to_string(
       "projects/notes/_note",
       layout: false,
@@ -96,20 +110,20 @@ class Projects::NotesController < Projects::ApplicationController
     )
   end
 
-  def note_to_discussion_html(note)
-    return unless note.for_diff_line?
+  def diff_discussion_html(discussion)
+    return unless discussion.diff_discussion?
 
     if params[:view] == 'parallel'
-      template = "projects/notes/_diff_notes_with_reply_parallel"
+      template = "discussions/_parallel_diff_discussion"
       locals =
         if params[:line_type] == 'old'
-          { notes_left: [note], notes_right: [] }
+          { discussion_left: discussion, discussion_right: nil }
         else
-          { notes_left: [], notes_right: [note] }
+          { discussion_left: nil, discussion_right: discussion }
         end
     else
-      template = "projects/notes/_diff_notes_with_reply"
-      locals = { notes: [note] }
+      template = "discussions/_diff_discussion"
+      locals = { discussion: discussion }
     end
 
     render_to_string(
@@ -120,33 +134,66 @@ class Projects::NotesController < Projects::ApplicationController
     )
   end
 
-  def note_to_discussion_with_diff_html(note)
-    return unless note.for_diff_line?
+  def discussion_html(discussion)
+    return unless discussion.diff_discussion?
 
     render_to_string(
-      "projects/notes/_discussion",
+      "discussions/_discussion",
       layout: false,
       formats: [:html],
-      locals: { discussion_notes: [note] }
+      locals: { discussion: discussion }
     )
   end
 
   def note_json(note)
-    if note.valid?
+    if note.is_a?(AwardEmoji)
       {
+        valid:  note.valid?,
+        award:  true,
+        id:     note.id,
+        name:   note.name
+      }
+    elsif note.persisted?
+      Banzai::NoteRenderer.render([note], @project, current_user)
+
+      attrs = {
         valid: true,
         id: note.id,
         discussion_id: note.discussion_id,
-        html: note_to_html(note),
-        award: note.is_award,
-        note: note.note,
-        discussion_html: note_to_discussion_html(note),
-        discussion_with_diff_html: note_to_discussion_with_diff_html(note)
+        html: note_html(note),
+        award: false,
+        note: note.note
       }
+
+      if note.diff_note?
+        discussion = note.to_discussion
+
+        attrs.merge!(
+          diff_discussion_html: diff_discussion_html(discussion),
+          discussion_html: discussion_html(discussion)
+        )
+
+        # The discussion_id is used to add the comment to the correct discussion
+        # element on the merge request page. Among other things, the discussion_id
+        # contains the sha of head commit of the merge request.
+        # When new commits are pushed into the merge request after the initial
+        # load of the merge request page, the discussion elements will still have
+        # the old discussion_ids, with the old head commit sha. The new comment,
+        # however, will have the new discussion_id with the new commit sha.
+        # To ensure that these new comments will still end up in the correct
+        # discussion element, we also send the original discussion_id, with the
+        # old commit sha, along, and fall back on this value when no discussion
+        # element with the new discussion_id could be found.
+        if note.new_diff_note? && note.position != note.original_position
+          attrs[:original_discussion_id] = note.original_discussion_id
+        end
+      end
+
+      attrs
     else
       {
         valid: false,
-        award: note.is_award,
+        award: false,
         errors: note.errors
       }
     end
@@ -156,10 +203,14 @@ class Projects::NotesController < Projects::ApplicationController
     return access_denied! unless can?(current_user, :admin_note, note)
   end
 
+  def authorize_resolve_note!
+    return access_denied! unless can?(current_user, :resolve_note, note)
+  end
+
   def note_params
     params.require(:note).permit(
       :note, :noteable, :noteable_id, :noteable_type, :project_id,
-      :attachment, :line_code, :commit_id
+      :attachment, :line_code, :commit_id, :type, :position
     )
   end
 

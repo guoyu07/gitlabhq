@@ -11,20 +11,44 @@
     }
   }
 
+  .add-to-tree {
+    vertical-align: top;
+  }
+
   .tree-table {
     margin-bottom: 0;
 
     tr {
-      > td, > th {
-        line-height: 26px;
+      border-bottom: 1px solid $table-border-gray;
+      border-top: 1px solid $table-border-gray;
+
+      td, th {
+        line-height: 21px;
+      }
+
+      .last-commit {
+        @include str-truncated(506px);
+        
+        @media (min-width: $screen-sm-max) and (max-width: $screen-md-max) {
+          @include str-truncated(450px);
+        }
+        
+      }
+
+      .commit-history-link-spacer {
+        margin: 0 10px;
+        color: $table-border-color;
       }
 
       &:hover {
         td {
-          background: $row-hover;
+          background-color: $row-hover;
+          border-top: 1px solid $row-hover-border;
+          border-bottom: 1px solid $row-hover-border;
+          cursor: pointer;
         }
-        cursor: pointer;
       }
+
       &.selected {
         td {
           background: $gray-dark;
@@ -36,6 +60,15 @@
   }
 
   .tree-item {
+    .link-container {
+      padding: 0;
+
+      a {
+        padding: 10px $gl-padding;
+        display: block;
+      }
+    }
+
     .tree-item-file-name {
       max-width: 320px;
       vertical-align: middle;
@@ -52,6 +85,10 @@
 
     .tree_commit {
       max-width: 320px;
+
+      .str-truncated {
+        max-width: 100%;
+      }
     }
 
     .tree_time_ago {
@@ -67,11 +104,17 @@
     }
   }
 
-  .tree_commit {
-    color: $gl-gray;
+  .tree-time-ago {
+    min-width: 135px;
+    color: $gl-gray-light;
+  }
+
+  .tree-commit {
+    max-width: 320px;
+    color: $gl-gray-light;
 
     .tree-commit-link {
-      color: $gl-gray;
+      color: $gl-gray-light;
 
       &:hover {
         text-decoration: underline;
@@ -94,7 +137,8 @@
   margin: 0;
 
   .commit {
-    padding: 0;
+    padding-top: 0;
+    padding-bottom: 0;
 
     .commit-row-title {
       .commit-row-message {
@@ -122,4 +166,6 @@
 .tree-controls {
   float: right;
   margin-top: 11px;
+  position: relative;
+  z-index: 2;
 }

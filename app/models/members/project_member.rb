@@ -1,22 +1,3 @@
-# == Schema Information
-#
-# Table name: members
-#
-#  id                 :integer          not null, primary key
-#  access_level       :integer          not null
-#  source_id          :integer          not null
-#  source_type        :string(255)      not null
-#  user_id            :integer
-#  notification_level :integer          not null
-#  type               :string(255)
-#  created_at         :datetime
-#  updated_at         :datetime
-#  created_by_id      :integer
-#  invite_email       :string(255)
-#  invite_token       :string(255)
-#  invite_accepted_at :datetime
-#
-
 class ProjectMember < Member
   SOURCE_TYPE = 'Project'
 
@@ -24,61 +5,49 @@ class ProjectMember < Member
 
   belongs_to :project, class_name: 'Project', foreign_key: 'source_id'
 
-
   # Make sure project member points only to project as it source
   default_value_for :source_type, SOURCE_TYPE
-  default_value_for :notification_level, Notification::N_GLOBAL
   validates_format_of :source_type, with: /\AProject\z/
+  validates :access_level, inclusion: { in: Gitlab::Access.values }
   default_scope { where(source_type: SOURCE_TYPE) }
 
   scope :in_project, ->(project) { where(source_id: project.id) }
-  scope :in_projects, ->(projects) { where(source_id: projects.pluck(:id)) }
-  scope :with_user, ->(user) { where(user_id: user.id) }
+
+  before_destroy :delete_member_todos
 
   class << self
-
     # Add users to project teams with passed access option
     #
     # access can be an integer representing a access code
     # or symbol like :master representing role
     #
     # Ex.
-    #   add_users_into_projects(
+    #   add_users_to_projects(
     #     project_ids,
     #     user_ids,
     #     ProjectMember::MASTER
     #   )
     #
-    #   add_users_into_projects(
+    #   add_users_to_projects(
     #     project_ids,
     #     user_ids,
     #     :master
     #   )
     #
-    def add_users_into_projects(project_ids, user_ids, access, current_user = nil)
-      access_level = if roles_hash.has_key?(access)
-                       roles_hash[access]
-                     elsif roles_hash.values.include?(access.to_i)
-                       access
-                     else
-                       raise "Non valid access"
-                     end
-
-      users = user_ids.map { |user_id| Member.user_for_id(user_id) }
-
-      ProjectMember.transaction do
+    def add_users_to_projects(project_ids, users, access_level, current_user: nil, expires_at: nil)
+      self.transaction do
         project_ids.each do |project_id|
           project = Project.find(project_id)
 
-          users.each do |user|
-            Member.add_user(project.project_members, user, access_level, current_user)
-          end
+          add_users_to_source(
+            project,
+            users,
+            access_level,
+            current_user: current_user,
+            expires_at: expires_at
+          )
         end
       end
-
-      true
-    rescue
-      false
     end
 
     def truncate_teams(project_ids)
@@ -99,12 +68,14 @@ class ProjectMember < Member
       truncate_teams [project.id]
     end
 
-    def roles_hash
-      Gitlab::Access.sym_options
+    def access_level_roles
+      Gitlab::Access.options
     end
 
-    def access_roles
-      Gitlab::Access.options
+    private
+
+    def can_update_member?(current_user, member)
+      super || (member.owner? && member.new_record?)
     end
   end
 
@@ -121,6 +92,10 @@ class ProjectMember < Member
   end
 
   private
+
+  def delete_member_todos
+    user.todos.where(project_id: source_id).destroy_all if user
+  end
 
   def send_invite
     notification_service.invite_project_member(self, @raw_invite_token)

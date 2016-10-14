@@ -1,69 +1,4 @@
-# == Schema Information
-#
-# Table name: users
-#
-#  id                          :integer          not null, primary key
-#  email                       :string(255)      default(""), not null
-#  encrypted_password          :string(255)      default(""), not null
-#  reset_password_token        :string(255)
-#  reset_password_sent_at      :datetime
-#  remember_created_at         :datetime
-#  sign_in_count               :integer          default(0)
-#  current_sign_in_at          :datetime
-#  last_sign_in_at             :datetime
-#  current_sign_in_ip          :string(255)
-#  last_sign_in_ip             :string(255)
-#  created_at                  :datetime
-#  updated_at                  :datetime
-#  name                        :string(255)
-#  admin                       :boolean          default(FALSE), not null
-#  projects_limit              :integer          default(10)
-#  skype                       :string(255)      default(""), not null
-#  linkedin                    :string(255)      default(""), not null
-#  twitter                     :string(255)      default(""), not null
-#  authentication_token        :string(255)
-#  theme_id                    :integer          default(1), not null
-#  bio                         :string(255)
-#  failed_attempts             :integer          default(0)
-#  locked_at                   :datetime
-#  username                    :string(255)
-#  can_create_group            :boolean          default(TRUE), not null
-#  can_create_team             :boolean          default(TRUE), not null
-#  state                       :string(255)
-#  color_scheme_id             :integer          default(1), not null
-#  notification_level          :integer          default(1), not null
-#  password_expires_at         :datetime
-#  created_by_id               :integer
-#  last_credential_check_at    :datetime
-#  avatar                      :string(255)
-#  confirmation_token          :string(255)
-#  confirmed_at                :datetime
-#  confirmation_sent_at        :datetime
-#  unconfirmed_email           :string(255)
-#  hide_no_ssh_key             :boolean          default(FALSE)
-#  website_url                 :string(255)      default(""), not null
-#  notification_email          :string(255)
-#  hide_no_password            :boolean          default(FALSE)
-#  password_automatically_set  :boolean          default(FALSE)
-#  location                    :string(255)
-#  encrypted_otp_secret        :string(255)
-#  encrypted_otp_secret_iv     :string(255)
-#  encrypted_otp_secret_salt   :string(255)
-#  otp_required_for_login      :boolean          default(FALSE), not null
-#  otp_backup_codes            :text
-#  public_email                :string(255)      default(""), not null
-#  dashboard                   :integer          default(0)
-#  project_view                :integer          default(0)
-#  consumed_timestep           :integer
-#  layout                      :integer          default(0)
-#  hide_project_limit          :boolean          default(FALSE)
-#  unlock_token                :string
-#  otp_grace_period_started_at :datetime
-#  external                    :boolean           default(FALSE)
-#
-
 require 'carrierwave/orm/activerecord'
-require 'file_size_validator'
 
 class User < ActiveRecord::Base
   extend Gitlab::ConfigHelper
@@ -75,24 +10,31 @@ class User < ActiveRecord::Base
   include CaseSensitivity
   include TokenAuthenticatable
 
+  DEFAULT_NOTIFICATION_LEVEL = :participating
+
   add_authentication_token_field :authentication_token
 
   default_value_for :admin, false
-  default_value_for :external, false
+  default_value_for(:external) { current_application_settings.user_default_external }
   default_value_for :can_create_group, gitlab_config.default_can_create_group
   default_value_for :can_create_team, false
   default_value_for :hide_no_ssh_key, false
   default_value_for :hide_no_password, false
   default_value_for :theme_id, gitlab_config.default_theme
 
+  attr_encrypted :otp_secret,
+    key:       Gitlab::Application.secrets.otp_key_base,
+    mode:      :per_attribute_iv_and_salt,
+    insecure_mode: true,
+    algorithm: 'aes-256-cbc'
+
   devise :two_factor_authenticatable,
-         otp_secret_encryption_key: File.read(Rails.root.join('.secret')).chomp
-  alias_attribute :two_factor_enabled, :otp_required_for_login
+         otp_secret_encryption_key: Gitlab::Application.secrets.otp_key_base
 
   devise :two_factor_backupable, otp_number_of_backup_codes: 10
   serialize :otp_backup_codes, JSON
 
-  devise :lockable, :async, :recoverable, :rememberable, :trackable,
+  devise :lockable, :recoverable, :rememberable, :trackable,
     :validatable, :omniauthable, :confirmable, :registerable
 
   attr_accessor :force_random_password
@@ -110,12 +52,13 @@ class User < ActiveRecord::Base
   # Profile
   has_many :keys, dependent: :destroy
   has_many :emails, dependent: :destroy
+  has_many :personal_access_tokens, dependent: :destroy
   has_many :identities, dependent: :destroy, autosave: true
+  has_many :u2f_registrations, dependent: :destroy
 
   # Groups
   has_many :members, dependent: :destroy
-  has_many :project_members, source: 'ProjectMember'
-  has_many :group_members, source: 'GroupMember'
+  has_many :group_members, -> { where(requested_at: nil) }, dependent: :destroy, source: 'GroupMember'
   has_many :groups, through: :group_members
   has_many :owned_groups, -> { where members: { access_level: Gitlab::Access::OWNER } }, through: :group_members, source: :group
   has_many :masters_groups, -> { where members: { access_level: Gitlab::Access::MASTER } }, through: :group_members, source: :group
@@ -123,13 +66,13 @@ class User < ActiveRecord::Base
   # Projects
   has_many :groups_projects,          through: :groups, source: :projects
   has_many :personal_projects,        through: :namespace, source: :projects
+  has_many :project_members, -> { where(requested_at: nil) }, dependent: :destroy, class_name: 'ProjectMember'
   has_many :projects,                 through: :project_members
   has_many :created_projects,         foreign_key: :creator_id, class_name: 'Project'
   has_many :users_star_projects, dependent: :destroy
   has_many :starred_projects, through: :users_star_projects, source: :project
 
   has_many :snippets,                 dependent: :destroy, foreign_key: :author_id, class_name: "Snippet"
-  has_many :project_members,          dependent: :destroy, class_name: 'ProjectMember'
   has_many :issues,                   dependent: :destroy, foreign_key: :author_id
   has_many :notes,                    dependent: :destroy, foreign_key: :author_id
   has_many :merge_requests,           dependent: :destroy, foreign_key: :author_id
@@ -142,7 +85,10 @@ class User < ActiveRecord::Base
   has_one  :abuse_report,             dependent: :destroy
   has_many :spam_logs,                dependent: :destroy
   has_many :builds,                   dependent: :nullify, class_name: 'Ci::Build'
+  has_many :pipelines,                dependent: :nullify, class_name: 'Ci::Pipeline'
   has_many :todos,                    dependent: :destroy
+  has_many :notification_settings,    dependent: :destroy
+  has_many :award_emoji,              dependent: :destroy
 
   #
   # Validations
@@ -157,7 +103,6 @@ class User < ActiveRecord::Base
     presence: true,
     uniqueness: { case_sensitive: false }
 
-  validates :notification_level, inclusion: { in: Notification.notification_levels }, presence: true
   validate :namespace_uniq, if: ->(user) { user.username_changed? }
   validate :avatar_type, if: ->(user) { user.avatar.present? && user.avatar_changed? }
   validate :unique_email, if: ->(user) { user.email_changed? }
@@ -166,7 +111,7 @@ class User < ActiveRecord::Base
   validates :avatar, file_size: { maximum: 200.kilobytes.to_i }
 
   before_validation :generate_password, on: :create
-  before_validation :restricted_signup_domains, on: :create
+  before_validation :signup_domain_valid?, on: :create
   before_validation :sanitize_attrs
   before_validation :set_notification_email, if: ->(user) { user.email_changed? }
   before_validation :set_public_email, if: ->(user) { user.public_email_changed? }
@@ -176,6 +121,7 @@ class User < ActiveRecord::Base
   before_save :ensure_external_user_rights
   after_save :ensure_namespace_correct
   after_initialize :set_projects_limit
+  before_create :check_confirmation_email
   after_create :post_create_hook
   after_destroy :post_destroy_hook
 
@@ -184,7 +130,7 @@ class User < ActiveRecord::Base
 
   # User's Dashboard preference
   # Note: When adding an option, it MUST go on the end of the array.
-  enum dashboard: [:projects, :stars, :project_activity, :starred_project_activity]
+  enum dashboard: [:projects, :stars, :project_activity, :starred_project_activity, :groups, :todos]
 
   # User's Project preference
   # Note: When adding an option, it MUST go on the end of the array.
@@ -225,8 +171,16 @@ class User < ActiveRecord::Base
   scope :active, -> { with_state(:active) }
   scope :not_in_project, ->(project) { project.users.present? ? where("id not in (:ids)", ids: project.users.map(&:id) ) : all }
   scope :without_projects, -> { where('id NOT IN (SELECT DISTINCT(user_id) FROM members)') }
-  scope :with_two_factor,    -> { where(two_factor_enabled: true) }
-  scope :without_two_factor, -> { where(two_factor_enabled: false) }
+
+  def self.with_two_factor
+    joins("LEFT OUTER JOIN u2f_registrations AS u2f ON u2f.user_id = users.id").
+      where("u2f.id IS NOT NULL OR otp_required_for_login = ?", true).distinct(arel_table[:id])
+  end
+
+  def self.without_two_factor
+    joins("LEFT OUTER JOIN u2f_registrations AS u2f ON u2f.user_id = users.id").
+      where("u2f.id IS NULL AND otp_required_for_login = ?", false)
+  end
 
   #
   # Class methods
@@ -316,8 +270,18 @@ class User < ActiveRecord::Base
       find_by!('lower(username) = ?', username.downcase)
     end
 
+    def find_by_personal_access_token(token_string)
+      personal_access_token = PersonalAccessToken.active.find_by_token(token_string) if token_string
+      personal_access_token.user if personal_access_token
+    end
+
     def by_username_or_id(name_or_id)
       find_by('users.username = ? OR users.id = ?', name_or_id.to_s, name_or_id.to_i)
+    end
+
+    # Returns a user for the given SSH key.
+    def find_by_ssh_key_id(key_id)
+      find_by(id: Key.unscoped.select(:user_id).where(id: key_id))
     end
 
     def build_user(attrs = {})
@@ -349,13 +313,9 @@ class User < ActiveRecord::Base
     "#{self.class.reference_prefix}#{username}"
   end
 
-  def notification
-    @notification ||= Notification.new(self)
-  end
-
   def generate_password
     if self.force_random_password
-      self.password = self.password_confirmation = Devise.friendly_token.first(8)
+      self.password = self.password_confirmation = Devise.friendly_token.first(Devise.password_length.min)
     end
   end
 
@@ -368,19 +328,38 @@ class User < ActiveRecord::Base
     @reset_token
   end
 
+  def check_confirmation_email
+    skip_confirmation! unless current_application_settings.send_user_confirmation_email
+  end
+
   def recently_sent_password_reset?
     reset_password_sent_at.present? && reset_password_sent_at >= 1.minute.ago
   end
 
   def disable_two_factor!
-    update_attributes(
-      two_factor_enabled:          false,
-      encrypted_otp_secret:        nil,
-      encrypted_otp_secret_iv:     nil,
-      encrypted_otp_secret_salt:   nil,
-      otp_grace_period_started_at: nil,
-      otp_backup_codes:            nil
-    )
+    transaction do
+      update_attributes(
+        otp_required_for_login:      false,
+        encrypted_otp_secret:        nil,
+        encrypted_otp_secret_iv:     nil,
+        encrypted_otp_secret_salt:   nil,
+        otp_grace_period_started_at: nil,
+        otp_backup_codes:            nil
+      )
+      self.u2f_registrations.destroy_all
+    end
+  end
+
+  def two_factor_enabled?
+    two_factor_otp_enabled? || two_factor_u2f_enabled?
+  end
+
+  def two_factor_otp_enabled?
+    self.otp_required_for_login?
+  end
+
+  def two_factor_u2f_enabled?
+    self.u2f_registrations.exists?
   end
 
   def namespace_uniq
@@ -408,6 +387,8 @@ class User < ActiveRecord::Base
   end
 
   def owns_notification_email
+    return if self.temp_oauth_email?
+
     self.errors.add(:notification_email, "is not an email you own") unless self.all_emails.include?(self.notification_email)
   end
 
@@ -436,8 +417,15 @@ class User < ActiveRecord::Base
   end
 
   # Returns projects user is authorized to access.
-  def authorized_projects
-    Project.where("projects.id IN (#{projects_union.to_sql})")
+  #
+  # If you change the logic of this method, please also update `Project#authorized_for_user`
+  def authorized_projects(min_access_level = nil)
+    Project.where("projects.id IN (#{projects_union(min_access_level).to_sql})")
+  end
+
+  def viewable_starred_projects
+    starred_projects.where("projects.visibility_level IN (?) OR projects.id IN (#{projects_union.to_sql})",
+                           [Project::PUBLIC, Project::INTERNAL])
   end
 
   def owned_projects
@@ -446,9 +434,11 @@ class User < ActiveRecord::Base
                     owned_groups.select(:id), namespace.id).joins(:namespace)
   end
 
-  # Team membership in authorized projects
-  def tm_in_authorized_projects
-    ProjectMember.where(source_id: authorized_projects.map(&:id), user_id: self.id)
+  # Returns projects which user can admin issues on (for example to move an issue to that project).
+  #
+  # This logic is duplicated from `Ability#project_abilities` into a SQL form.
+  def projects_where_can_admin_issues
+    authorized_projects(Gitlab::Access::REPORTER).non_archived.with_issues_enabled
   end
 
   def is_admin?
@@ -475,16 +465,12 @@ class User < ActiveRecord::Base
     can?(:create_group, nil)
   end
 
-  def abilities
-    Ability.abilities
-  end
-
   def can_select_namespace?
     several_namespaces? || admin
   end
 
   def can?(action, subject)
-    abilities.allowed?(self, action, subject)
+    Ability.allowed?(self, action, subject)
   end
 
   def first_name
@@ -504,18 +490,17 @@ class User < ActiveRecord::Base
     (personal_projects.count.to_f / projects_limit) * 100
   end
 
-  def recent_push(project_id = nil)
+  def recent_push(project_ids = nil)
     # Get push events not earlier than 2 hours ago
     events = recent_events.code_push.where("created_at > ?", Time.now - 2.hours)
-    events = events.where(project_id: project_id) if project_id
+    events = events.where(project_id: project_ids) if project_ids
 
     # Use the latest event that has not been pushed or merged recently
     events.recent.find do |event|
       project = Project.find_by_id(event.project_id)
       next unless project
-      repo = project.repository
 
-      if repo.branch_names.include?(event.branch_name)
+      if project.repository.branch_exists?(event.branch_name)
         merge_requests = MergeRequest.where("created_at >= ?", event.created_at).
             where(source_project_id: project.id,
                   source_branch: event.branch_name)
@@ -538,10 +523,6 @@ class User < ActiveRecord::Base
 
   def name_with_username
     "#{name} (#{username})"
-  end
-
-  def tm_of(project)
-    project.project_member_by_id(self.id)
   end
 
   def already_forked?(project)
@@ -608,6 +589,11 @@ class User < ActiveRecord::Base
   end
 
   def set_projects_limit
+    # `User.select(:id)` raises
+    # `ActiveModel::MissingAttributeError: missing attribute: projects_limit`
+    # without this safeguard!
+    return unless self.has_attribute?(:projects_limit)
+
     connection_default_value_defined = new_record? && !projects_limit_changed?
     return unless self.projects_limit.nil? || connection_default_value_defined
 
@@ -683,7 +669,7 @@ class User < ActiveRecord::Base
   end
 
   def avatar_url(size = nil, scale = 2)
-    if avatar.present?
+    if self[:avatar].present?
       [gitlab_config.url, avatar.url].join
     else
       GravatarService.new.execute(email, size, scale)
@@ -789,29 +775,6 @@ class User < ActiveRecord::Base
     Project.where(id: events)
   end
 
-  def restricted_signup_domains
-    email_domains = current_application_settings.restricted_signup_domains
-
-    unless email_domains.blank?
-      match_found = email_domains.any? do |domain|
-        escaped = Regexp.escape(domain).gsub('\*','.*?')
-        regexp = Regexp.new "^#{escaped}$", Regexp::IGNORECASE
-        email_domain = Mail::Address.new(self.email).domain
-        email_domain =~ regexp
-      end
-
-      unless match_found
-        self.errors.add :email,
-                        'is not whitelisted. ' +
-                        'Email domains valid for registration are: ' +
-                        email_domains.join(', ')
-        return false
-      end
-    end
-
-    true
-  end
-
   def can_be_removed?
     !solo_owned_groups.present?
   end
@@ -825,13 +788,85 @@ class User < ActiveRecord::Base
     end
   end
 
+  def notification_settings_for(source)
+    notification_settings.find_or_initialize_by(source: source)
+  end
+
+  # Lazy load global notification setting
+  # Initializes User setting with Participating level if setting not persisted
+  def global_notification_setting
+    return @global_notification_setting if defined?(@global_notification_setting)
+
+    @global_notification_setting = notification_settings.find_or_initialize_by(source: nil)
+    @global_notification_setting.update_attributes(level: NotificationSetting.levels[DEFAULT_NOTIFICATION_LEVEL]) unless @global_notification_setting.persisted?
+
+    @global_notification_setting
+  end
+
+  def assigned_open_merge_request_count(force: false)
+    Rails.cache.fetch(['users', id, 'assigned_open_merge_request_count'], force: force) do
+      assigned_merge_requests.opened.count
+    end
+  end
+
+  def assigned_open_issues_count(force: false)
+    Rails.cache.fetch(['users', id, 'assigned_open_issues_count'], force: force) do
+      assigned_issues.opened.count
+    end
+  end
+
+  def update_cache_counts
+    assigned_open_merge_request_count(force: true)
+    assigned_open_issues_count(force: true)
+  end
+
+  def todos_done_count(force: false)
+    Rails.cache.fetch(['users', id, 'todos_done_count'], force: force) do
+      TodosFinder.new(self, state: :done).execute.count
+    end
+  end
+
+  def todos_pending_count(force: false)
+    Rails.cache.fetch(['users', id, 'todos_pending_count'], force: force) do
+      TodosFinder.new(self, state: :pending).execute.count
+    end
+  end
+
+  def update_todos_count_cache
+    todos_done_count(force: true)
+    todos_pending_count(force: true)
+  end
+
+  # This is copied from Devise::Models::Lockable#valid_for_authentication?, as our auth
+  # flow means we don't call that automatically (and can't conveniently do so).
+  #
+  # See:
+  #   <https://github.com/plataformatec/devise/blob/v4.0.0/lib/devise/models/lockable.rb#L92>
+  #
+  def increment_failed_attempts!
+    self.failed_attempts ||= 0
+    self.failed_attempts += 1
+    if attempts_exceeded?
+      lock_access! unless access_locked?
+    else
+      save(validate: false)
+    end
+  end
+
   private
 
-  def projects_union
-    Gitlab::SQL::Union.new([personal_projects.select(:id),
-                            groups_projects.select(:id),
-                            projects.select(:id),
-                            groups.joins(:shared_projects).select(:project_id)])
+  def projects_union(min_access_level = nil)
+    relations = [personal_projects.select(:id),
+                 groups_projects.select(:id),
+                 projects.select(:id),
+                 groups.joins(:shared_projects).select(:project_id)]
+
+    if min_access_level
+      scope = { access_level: Gitlab::Access.all_values.select { |access| access >= min_access_level } }
+      relations = [relations.shift] + relations.map { |relation| relation.where(members: scope) }
+    end
+
+    Gitlab::SQL::Union.new(relations)
   end
 
   def ci_projects_union
@@ -853,5 +888,41 @@ class User < ActiveRecord::Base
 
     self.can_create_group   = false
     self.projects_limit     = 0
+  end
+
+  def signup_domain_valid?
+    valid = true
+    error = nil
+
+    if current_application_settings.domain_blacklist_enabled?
+      blocked_domains = current_application_settings.domain_blacklist
+      if domain_matches?(blocked_domains, self.email)
+        error = 'is not from an allowed domain.'
+        valid = false
+      end
+    end
+
+    allowed_domains = current_application_settings.domain_whitelist
+    unless allowed_domains.blank?
+      if domain_matches?(allowed_domains, self.email)
+        valid = true
+      else
+        error = "domain is not authorized for sign-up"
+        valid = false
+      end
+    end
+
+    self.errors.add(:email, error) unless valid
+
+    valid
+  end
+
+  def domain_matches?(email_domains, email)
+    signup_domain = Mail::Address.new(email).domain
+    email_domains.any? do |domain|
+      escaped = Regexp.escape(domain).gsub('\*', '.*?')
+      regexp = Regexp.new "^#{escaped}$", Regexp::IGNORECASE
+      signup_domain =~ regexp
+    end
   end
 end
